@@ -1,1 +1,6 @@
 /target
+.env
+.DS_Store
+node_modules/
+.vitest-ctx.json
+.sqlx/

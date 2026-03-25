@@ -59,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(protected)
+        .merge(routes::admin::router())
         .merge(routes::jwks::router())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
