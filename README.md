@@ -51,12 +51,14 @@ Aegis uses ES256 (ECDSA P-256) for JWTs. Run:
 make keys
 ```
 
-This prints two `export` lines ready to paste into `.env`:
+This prints two lines ready to paste into `.env`:
 
 ```
-JWT_PRIVATE_KEY=-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----\n
-JWT_PUBLIC_KEY=-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n
+JWT_PRIVATE_KEY=LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t...
+JWT_PUBLIC_KEY=LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0...
 ```
+
+The values are base64-encoded PEM files (single line, no spaces) — safe to paste directly into `.env` files, Docker env vars, or Dokploy. Aegis decodes them at startup.
 
 Keep `JWT_PRIVATE_KEY` secret. `JWT_PUBLIC_KEY` can be shared — consuming services use it to verify tokens locally or via `GET /.well-known/jwks.json`.
 
@@ -70,8 +72,8 @@ make test-clean
 
 This runs the complete lifecycle in one command:
 1. Wipes any existing DB volume
-2. Rebuilds and starts a fresh DB + API (`--wait` blocks until the healthcheck passes)
-3. Runs the Vitest integration-test suite inside a Docker container
+2. Rebuilds and starts a fresh DB + API + test runner together
+3. Stops everything as soon as the test container exits (`--abort-on-container-exit`)
 4. Tears everything down, leaving no leftover state
 
 ### Run tests against already-running containers

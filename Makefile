@@ -24,6 +24,9 @@ test:
 
 # Full clean test run: generate fresh keys → wipe DB → build → run tests → tear down.
 # No pre-existing environment variables required.
+#
+# Uses --abort-on-container-exit so the run terminates the moment the tests
+# container (or the API, if it crashes) stops — prevents indefinite hanging.
 test-clean:
 	@openssl ecparam -name prime256v1 -genkey -noout -out /tmp/_aegis_test_ec.pem 2>/dev/null
 	@openssl pkcs8 -topk8 -nocrypt -in /tmp/_aegis_test_ec.pem -out /tmp/_aegis_test.pem 2>/dev/null
@@ -32,8 +35,8 @@ test-clean:
 		"$$(openssl ec -in /tmp/_aegis_test_ec.pem -pubout 2>/dev/null | base64 | tr -d '\n')" \
 		> /tmp/_aegis_test.env
 	docker compose --env-file /tmp/_aegis_test.env down -v
-	docker compose --env-file /tmp/_aegis_test.env up db api --build -d
-	docker compose --env-file /tmp/_aegis_test.env --profile test run --build --rm tests; \
+	docker compose --env-file /tmp/_aegis_test.env --profile test up --build \
+		--abort-on-container-exit --exit-code-from tests; \
 		STATUS=$$?; \
 		docker compose --env-file /tmp/_aegis_test.env logs api; \
 		docker compose --env-file /tmp/_aegis_test.env down -v; \

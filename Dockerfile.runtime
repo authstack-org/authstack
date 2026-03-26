@@ -1,0 +1,16 @@
+# Minimal runtime image — used by CI to wrap the pre-built binary.
+# The binary is compiled on the GitHub Actions runner (with Cargo cache),
+# then copied here for a fast, small production image.
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY dist/aegis /app/aegis
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/aegis"]

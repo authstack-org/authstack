@@ -1,140 +1,116 @@
 # Running Aegis in Production
 
-## Overview
+This guide covers deploying Aegis on a Dokploy-managed server (the same setup used for brisk-api and brisk-auth). The steps apply equally to any Docker-capable host.
 
-Aegis is distributed as a Docker image tagged `aegis-latest` on Docker Hub. It requires a PostgreSQL database and a set of environment variables — no other infrastructure dependencies.
+---
 
 ## Prerequisites
 
-- Docker (or any container runtime)
-- A PostgreSQL 16+ database
-- An ES256 key pair (generated once, stored securely)
+- A running PostgreSQL instance (Dokploy managed or external)
+- Docker Hub credentials (to pull the image)
+- A domain / subdomain pointing to your server (e.g. `auth.yourdomain.com`)
 
-## 1. Pull the image
+---
+
+## 1. Docker image
+
+The `docker-build-push` GitHub Actions workflow builds the image on every push to `main` and pushes it to Docker Hub tagged as:
+
+```
+<DOCKER_USERNAME>/<DOCKER_REPOSITORY>:aegis-latest
+```
+
+Set the following repository secrets in GitHub before the first push:
+
+| Secret | Description |
+|--------|-------------|
+| `DOCKER_USERNAME` | Your Docker Hub username |
+| `DOCKER_PASSWORD` | Your Docker Hub access token |
+| `DOCKER_REPOSITORY` | Repository name (e.g. `brisk`) |
+
+Once the workflow runs, the image is available to pull from any Docker host.
+
+---
+
+## 2. Generate a key pair
+
+Run this once on any machine with `openssl` installed:
 
 ```bash
-docker pull renjith/brisk:aegis-latest
+make keys
 ```
 
-## 2. Generate an ES256 key pair
+Copy the two output lines — you will paste them as environment variables in Dokploy.
 
-Run this once and store the output in your secrets manager (AWS Secrets Manager, Doppler, etc.). **Never commit these values to source control.**
+> `JWT_PRIVATE_KEY` must be kept secret.
+> `JWT_PUBLIC_KEY` can be distributed to consuming services that verify tokens locally.
+
+---
+
+## 3. Dokploy setup
+
+### 3a. Create the service
+
+1. In Dokploy, create a new **Application**.
+2. Set the source to **Docker Image** and enter:
+   ```
+   <DOCKER_USERNAME>/<DOCKER_REPOSITORY>:aegis-latest
+   ```
+3. Set the internal port to `8080`.
+
+### 3b. Environment variables
+
+Add these in the Dokploy environment tab. All values are required unless marked optional.
+
+| Variable | Example / Notes |
+|----------|-----------------|
+| `DATABASE_URL` | `postgres://user:pass@host:5432/aegis` |
+| `JWT_PRIVATE_KEY` | Base64-encoded PKCS#8 PEM — output of `make keys` |
+| `JWT_PUBLIC_KEY` | Base64-encoded SPKI PEM — output of `make keys` |
+| `AEGIS_ADMIN_KEY` | A long random string, e.g. `openssl rand -hex 32` |
+| `ACCESS_TOKEN_EXPIRY_SECS` | Optional. Default `900` (15 min) |
+| `REFRESH_TOKEN_EXPIRY_SECS` | Optional. Default `2592000` (30 days) |
+| `PORT` | Optional. Default `8080` |
+| `RUST_LOG` | Optional. `aegis=info` for production |
+
+> **Key format:** `make keys` outputs the PEM files base64-encoded as a single line with no spaces. Paste the value directly into Dokploy. Aegis decodes it at startup — no manual newline escaping needed.
+
+### 3c. Health check
+
+Configure Dokploy's health check to hit:
+
+```
+GET /.well-known/jwks.json
+```
+
+This returns `200` when the service is up and the JWT keys loaded correctly.
+
+### 3d. Deploy
+
+Click **Deploy** in Dokploy. On first boot, Aegis automatically runs all database migrations.
+
+Check the container logs for:
+
+```
+aegis listening on 0.0.0.0:8080
+```
+
+If you see `failed to initialise JWT service`, the `JWT_PRIVATE_KEY` env var is missing or malformed — re-run `make keys` and paste the output into Dokploy.
+
+---
+
+## 4. Register your first application
+
+Once Aegis is running, register each consuming app via the admin API:
 
 ```bash
-# Requires openssl
-openssl ecparam -name prime256v1 -genkey -noout -out /tmp/aegis_ec.pem
-openssl pkcs8 -topk8 -nocrypt -in /tmp/aegis_ec.pem -out /tmp/aegis_pkcs8.pem
-
-# Base64-encode for use as env vars (no newlines or spaces)
-JWT_PRIVATE_KEY=$(base64 < /tmp/aegis_pkcs8.pem | tr -d '\n')
-JWT_PUBLIC_KEY=$(openssl ec -in /tmp/aegis_ec.pem -pubout 2>/dev/null | base64 | tr -d '\n')
-
-echo "JWT_PRIVATE_KEY=$JWT_PRIVATE_KEY"
-echo "JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY"
-
-rm /tmp/aegis_ec.pem /tmp/aegis_pkcs8.pem
-```
-
-If you have the Aegis repo checked out, `make keys` does the same thing.
-
-The public key can be shared with consuming services so they can verify JWTs locally. The private key must stay on Aegis only.
-
-## 3. Generate an admin key
-
-The admin API (`POST /admin/applications`) is protected by a static secret. Generate one:
-
-```bash
-openssl rand -hex 32
-```
-
-Store this as `AEGIS_ADMIN_KEY` in your secrets manager.
-
-## 4. Configure environment variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | `postgres://user:password@host:5432/dbname` |
-| `JWT_PRIVATE_KEY` | Yes | Base64-encoded PKCS#8 PEM private key |
-| `JWT_PUBLIC_KEY` | Yes | Base64-encoded SPKI PEM public key |
-| `AEGIS_ADMIN_KEY` | Yes | Random secret for the admin API |
-| `ACCESS_TOKEN_EXPIRY_SECS` | No | Access token lifetime (default: `900` — 15 min) |
-| `REFRESH_TOKEN_EXPIRY_SECS` | No | Refresh token lifetime (default: `2592000` — 30 days) |
-| `PORT` | No | HTTP port (default: `8080`) |
-| `RUST_LOG` | No | Log filter, e.g. `aegis=info` |
-
-## 5. Database
-
-Aegis manages its own schema via SQLx migrations, which run automatically on startup. Point `DATABASE_URL` at a Postgres 16 instance and Aegis will create all tables on first boot.
-
-```
-DATABASE_URL=postgres://aegis:strongpassword@db.internal:5432/aegis
-```
-
-Ensure the database user has permission to create tables and indexes. On subsequent starts, only pending migrations run — existing data is untouched.
-
-## 6. Run the container
-
-```bash
-docker run -d \
-  --name aegis \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -e DATABASE_URL="postgres://aegis:strongpassword@db.internal:5432/aegis" \
-  -e JWT_PRIVATE_KEY="<base64-encoded-private-key>" \
-  -e JWT_PUBLIC_KEY="<base64-encoded-public-key>" \
-  -e AEGIS_ADMIN_KEY="<random-hex>" \
-  -e RUST_LOG="aegis=info" \
-  renjith/brisk:aegis-latest
-```
-
-Or with Docker Compose:
-
-```yaml
-services:
-  aegis:
-    image: renjith/brisk:aegis-latest
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    environment:
-      DATABASE_URL: postgres://aegis:strongpassword@db:5432/aegis
-      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
-      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
-      AEGIS_ADMIN_KEY: ${AEGIS_ADMIN_KEY}
-      RUST_LOG: aegis=info
-    depends_on:
-      db:
-        condition: service_healthy
-
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: aegis
-      POSTGRES_PASSWORD: strongpassword
-      POSTGRES_DB: aegis
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aegis"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  pgdata:
-```
-
-## 7. Register your first application
-
-Once Aegis is running, register each app that will use it. The `client_secret` is returned **only once** — store it immediately in your app's secrets manager.
-
-```bash
-curl -X POST http://localhost:8080/admin/applications \
+curl -X POST https://auth.yourdomain.com/admin/applications \
   -H "Content-Type: application/json" \
   -H "X-Admin-Key: <AEGIS_ADMIN_KEY>" \
   -d '{"name": "my-app"}'
 ```
+
+Response:
 
 ```json
 {
@@ -145,24 +121,22 @@ curl -X POST http://localhost:8080/admin/applications \
 }
 ```
 
-Give `client_id` and `client_secret` to the app's backend (BFF). They are used as HTTP Basic credentials on all subsequent requests to Aegis.
+> **Store `client_secret` immediately** — it is hashed and cannot be retrieved again.
 
-## 8. Health check
+Give the `client_id` and `client_secret` to your app's BFF (backend-for-frontend). The BFF authenticates every Aegis request using HTTP Basic auth with those credentials.
 
-Aegis exposes a health-check-friendly endpoint:
+---
 
-```
-GET /.well-known/jwks.json
-```
+## 5. Updating
 
-A `200` response means the service is up and the JWT keys are loaded. Wire this into your load balancer or orchestrator's health check.
+Push to `main`. The `docker-build-push` workflow rebuilds and pushes `aegis-latest`. In Dokploy, trigger a redeploy (or enable auto-deploy on image update).
 
-## Security checklist
+---
 
-- [ ] `JWT_PRIVATE_KEY` is stored in a secrets manager, not in env files or source control
-- [ ] `AEGIS_ADMIN_KEY` is a long random string (minimum 32 hex chars) and is not shared with app BFFs
-- [ ] Aegis is not directly reachable from the internet — only your BFF should call it
-- [ ] The database user has the minimum required permissions (no superuser)
-- [ ] Database traffic is over TLS (add `?sslmode=require` to `DATABASE_URL`)
-- [ ] Access token expiry (`ACCESS_TOKEN_EXPIRY_SECS`) is kept short (15 min default is reasonable)
-- [ ] Container runs with `--restart unless-stopped` or equivalent in your orchestrator
+## 6. Security checklist
+
+- [ ] `AEGIS_ADMIN_KEY` is at least 32 random bytes (`openssl rand -hex 32`)
+- [ ] `JWT_PRIVATE_KEY` is stored only in Dokploy env vars — never committed to the repo
+- [ ] PostgreSQL is not publicly accessible (use a private network or internal Dokploy network)
+- [ ] HTTPS is terminated at the Dokploy reverse proxy (Traefik)
+- [ ] `client_secret` values are stored in each BFF's secret store, not in client-side code
