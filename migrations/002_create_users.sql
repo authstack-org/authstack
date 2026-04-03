@@ -1,6 +1,6 @@
 CREATE TABLE "user" (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    app_id UUID NOT NULL REFERENCES application(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES application(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,

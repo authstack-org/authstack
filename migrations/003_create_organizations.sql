@@ -1,8 +1,8 @@
 CREATE TYPE org_type AS ENUM ('personal', 'team');
 
 CREATE TABLE organization (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    app_id UUID NOT NULL REFERENCES application(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES application(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     slug TEXT NOT NULL,
     org_type org_type NOT NULL DEFAULT 'team',

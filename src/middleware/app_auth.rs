@@ -4,13 +4,12 @@ use axum::{
     response::Response,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use uuid::Uuid;
 
-use crate::{error::AppError, services::password, AppState};
+use crate::{error::AppError, ids::ApplicationId, services::password, AppState};
 
 #[derive(Clone, Debug)]
 pub struct AppIdentity {
-    pub app_id: Uuid,
+    pub app_id: ApplicationId,
 }
 
 pub async fn authenticate_app(
@@ -35,14 +34,18 @@ pub async fn authenticate_app(
     let credentials = String::from_utf8(decoded)
         .map_err(|_| AppError::Unauthorized("invalid utf8 in Authorization".to_string()))?;
 
-    let (client_id, client_secret) = credentials
+    let (app_id_str, client_secret) = credentials
         .split_once(':')
         .ok_or_else(|| AppError::Unauthorized("malformed Basic credentials".to_string()))?;
 
-    let row: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, client_secret_hash FROM application WHERE client_id = $1",
+    let app_id: ApplicationId = app_id_str
+        .parse()
+        .map_err(|_| AppError::Unauthorized("invalid application id".to_string()))?;
+
+    let row: Option<(ApplicationId, String)> = sqlx::query_as(
+        "SELECT id, client_secret_hash FROM application WHERE id = $1",
     )
-    .bind(client_id)
+    .bind(app_id)
     .fetch_optional(&state.db)
     .await?;
 

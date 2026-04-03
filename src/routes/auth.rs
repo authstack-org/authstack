@@ -5,12 +5,13 @@ use axum::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
     error::{AppError, Result},
+    ids::{OrganizationId, RefreshSessionId, UserId},
     middleware::app_auth::AppIdentity,
+    models::organization::OrgType,
     services::auth as auth_service,
     AppState,
 };
@@ -86,7 +87,7 @@ async fn login(
     sqlx::query(
         "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
     )
-    .bind(Uuid::new_v4())
+    .bind(RefreshSessionId::new())
     .bind(result.user.id)
     .bind(&jti)
     .bind(state.config.refresh_token_expiry_secs as f64)
@@ -113,7 +114,7 @@ async fn refresh(
         return Err(AppError::Unauthorized("token app mismatch".to_string()));
     }
 
-    let session_id: Option<Uuid> = sqlx::query_scalar(
+    let session_id: Option<RefreshSessionId> = sqlx::query_scalar(
         "SELECT id FROM refresh_session WHERE jti = $1 AND revoked_at IS NULL AND expires_at > NOW()",
     )
     .bind(&claims.jti)
@@ -128,9 +129,9 @@ async fn refresh(
         .execute(&state.db)
         .await?;
 
-    let user_id: Uuid = claims.sub.parse().map_err(|_| AppError::Unauthorized("invalid token".to_string()))?;
+    let user_id: UserId = claims.sub.parse().map_err(|_| AppError::Unauthorized("invalid token".to_string()))?;
 
-    let row: (Uuid, String, crate::models::organization::OrgType, String) = sqlx::query_as(
+    let row: (UserId, String, OrgType, String) = sqlx::query_as(
         r#"SELECT u.id, u.email, o.org_type, m.role
            FROM "user" u
            JOIN member m ON m.user_id = u.id
@@ -144,7 +145,7 @@ async fn refresh(
 
     let (uid, email, org_type, role) = row;
 
-    let org_id: Uuid = sqlx::query_scalar(
+    let org_id: OrganizationId = sqlx::query_scalar(
         "SELECT id FROM organization WHERE app_id = $1 AND org_type = 'personal' AND id IN (SELECT organization_id FROM member WHERE user_id = $2)",
     )
     .bind(app.app_id)
@@ -162,7 +163,7 @@ async fn refresh(
     sqlx::query(
         "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
     )
-    .bind(Uuid::new_v4())
+    .bind(RefreshSessionId::new())
     .bind(uid)
     .bind(&new_jti)
     .bind(state.config.refresh_token_expiry_secs as f64)

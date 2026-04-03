@@ -10,7 +10,7 @@ Acts as the auth backend for multiple applications — similar in spirit to Cler
 
 ## How it works
 
-Every application registers with Aegis and receives a `client_id` + `client_secret`. Backend services (BFFs) authenticate all requests to Aegis using HTTP Basic auth with those credentials. Aegis never talks directly to a browser or mobile client — all calls come through the app's backend.
+Every application registers with Aegis and receives an `id` (TypeID, e.g. `app_01j4hz...`) and a `client_secret`. Backend services (BFFs) authenticate all requests to Aegis using HTTP Basic auth with those credentials. Aegis never talks directly to a browser or mobile client — all calls come through the app's backend.
 
 ```
 Mobile / Web  →  App Backend (BFF)  →  Aegis
@@ -103,7 +103,7 @@ make test
 | `DATABASE_URL` | Yes | Postgres connection string |
 | `JWT_PRIVATE_KEY` | Yes | ES256 PEM private key (newlines as `\n`) |
 | `JWT_PUBLIC_KEY` | Yes | ES256 PEM public key (newlines as `\n`) |
-| `AEGIS_ADMIN_KEY` | Yes | Static key for the admin API (`X-Admin-Key` header) |
+| `AEGIS_ADMIN_KEY` | Yes | Bootstrap key for creating the first admin account (`X-Admin-Key` header) |
 | `ACCESS_TOKEN_EXPIRY_SECS` | No | Access token lifetime in seconds (default: `900`) |
 | `REFRESH_TOKEN_EXPIRY_SECS` | No | Refresh token lifetime in seconds (default: `2592000`) |
 | `PORT` | No | HTTP port (default: `8080`) |
@@ -113,18 +113,49 @@ make test
 
 ### Admin
 
-These endpoints are protected by the `X-Admin-Key` header.
+Aegis ships with a browser-based admin panel at `/admin/login`. Log in with your admin credentials to manage applications.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/admin/applications` | Register a new application |
+#### Bootstrap
 
-**Create application**
+The first admin account is created once using the `X-Admin-Key` header:
 
 ```bash
-curl -X POST http://localhost:8080/admin/applications \
+curl -X POST http://localhost:8080/admin/users \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Key: <admin_key>" \
+  -H "X-Admin-Key: <AEGIS_ADMIN_KEY>" \
+  -d '{"email": "admin@example.com", "password": "your-password"}'
+```
+
+```json
+{ "id": "...", "email": "admin@example.com" }
+```
+
+After that, open `http://localhost:8080/admin/login` in a browser to manage applications through the UI.
+
+#### Admin panel routes
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET`  | `/admin/login` | — | Login page |
+| `POST` | `/admin/login` | — | Submit login form → sets session cookie |
+| `POST` | `/admin/logout` | Cookie | Clear session |
+| `GET`  | `/admin/dashboard` | Cookie | List all applications |
+| `GET`  | `/admin/apps/new` | Cookie | New application form |
+| `POST` | `/admin/apps` | Cookie | Create application (form submit) |
+
+#### JSON API (for scripts / CI)
+
+After logging in and obtaining a session cookie, you can also use the JSON API:
+
+```bash
+# 1. Login and capture the session cookie
+curl -c cookies.txt -X POST http://localhost:8080/admin/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "email=admin@example.com&password=your-password"
+
+# 2. Create an application
+curl -b cookies.txt -X POST http://localhost:8080/admin/applications \
+  -H "Content-Type: application/json" \
   -d '{"name": "my-app"}'
 ```
 
@@ -132,8 +163,7 @@ Response (the `client_secret` is only returned once — store it securely):
 
 ```json
 {
-  "id": "...",
-  "client_id": "app_abc123",
+  "id": "app_01j4hz0r3fexwpbgm41z1w57at",
   "client_secret": "secret_xyz...",
   "name": "my-app"
 }
@@ -144,8 +174,10 @@ Response (the `client_secret` is only returned once — store it securely):
 All `/auth/*`, `/users`, `/orgs`, and `/orgs/:id/members` endpoints require HTTP Basic auth:
 
 ```
-Authorization: Basic base64(client_id:client_secret)
+Authorization: Basic base64(<app_id>:<client_secret>)
 ```
+
+Where `<app_id>` is the TypeID returned when the application was created (e.g. `app_01j4hz0r3fexwpbgm41z1w57at`).
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -158,7 +190,7 @@ Authorization: Basic base64(client_id:client_secret)
 
 ```bash
 curl -X POST http://localhost:8080/auth/signup \
-  -H "Authorization: Basic $(echo -n 'app_abc123:secret_xyz' | base64)" \
+  -H "Authorization: Basic $(echo -n 'app_01j4hz0r3fexwpbgm41z1w57at:secret_xyz' | base64)" \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice", "email": "alice@example.com", "password": "hunter2secure"}'
 ```
@@ -167,7 +199,7 @@ curl -X POST http://localhost:8080/auth/signup \
 
 ```bash
 curl -X POST http://localhost:8080/auth/login \
-  -H "Authorization: Basic $(echo -n 'app_abc123:secret_xyz' | base64)" \
+  -H "Authorization: Basic $(echo -n 'app_01j4hz0r3fexwpbgm41z1w57at:secret_xyz' | base64)" \
   -H "Content-Type: application/json" \
   -d '{"email": "alice@example.com", "password": "hunter2secure"}'
 ```
@@ -184,9 +216,9 @@ The access token payload includes:
 
 ```json
 {
-  "sub": "<user_id>",
-  "app_id": "<app_id>",
-  "org_id": "<personal_org_id>",
+  "sub": "usr_01j4hz0r3fexwpbgm41z1w57at",
+  "app_id": "app_01j4hz0r3fexwpbgm41z1w57at",
+  "org_id": "org_01j4hz0r3fexwpbgm41z1w57at",
   "org_type": "personal",
   "role": "owner",
   "email": "alice@example.com",
@@ -195,6 +227,8 @@ The access token payload includes:
   "exp": 1234568790
 }
 ```
+
+All entity IDs are TypeIDs — a prefixed, sortable identifier format. Prefixes: `app_` (application), `usr_` (user), `org_` (organization), `mbr_` (member), `acct_` (account), `rsess_` (refresh session), `adm_` (admin user).
 
 ### Users
 
@@ -229,11 +263,11 @@ Consuming services can fetch this endpoint to verify Aegis-issued JWTs locally w
 
 ## Security model
 
-- **App isolation:** Users, organizations, and credentials are scoped to an `app_id`. A `client_secret` is required to access any app's data — one app cannot read another app's users even if it knows the other app's `client_id`.
+- **App isolation:** Users, organizations, and credentials are scoped to an `app_id`. A `client_secret` is required to access any app's data — one app cannot read another app's users even if it knows the other app's TypeID.
 - **Passwords:** Hashed with Argon2 (memory-hard, resistant to brute-force).
 - **JWTs:** Signed with ES256 (asymmetric). Only Aegis holds the private key; consuming services verify with the public key.
 - **Refresh token rotation:** Each use of a refresh token invalidates it and issues a new one. Re-use of a rotated token returns `401`.
-- **Admin key:** The `/admin/*` routes are protected by a static `X-Admin-Key`. Set this to a long random string in production and keep it out of your BFF code.
+- **Admin panel:** Protected by signed JWTs stored in `HttpOnly; SameSite=Strict` cookies. The `X-Admin-Key` is only used once to bootstrap the first admin account — set it to a long random string and keep it secret.
 
 ## Local development (without Docker)
 

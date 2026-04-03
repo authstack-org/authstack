@@ -1,7 +1,7 @@
 CREATE TABLE member (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     role TEXT NOT NULL DEFAULT 'member',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

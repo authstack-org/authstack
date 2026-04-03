@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::ids::{ApplicationId, UserId};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
-    pub id: Uuid,
-    pub app_id: Uuid,
+    pub id: UserId,
+    pub app_id: ApplicationId,
     pub name: String,
     pub email: String,
     pub email_verified: bool,

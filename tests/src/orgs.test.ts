@@ -45,7 +45,7 @@ describe('Organizations', () => {
   })
 
   it('returns 404 for a non-existent org id', async () => {
-    const { status } = await api.get(`/orgs/00000000-0000-0000-0000-000000000000`)
+    const { status } = await api.get(`/orgs/org_00000000000000000000000000`)
     expect(status).toBe(404)
   })
 })

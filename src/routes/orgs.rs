@@ -4,11 +4,11 @@ use axum::{
     Extension, Json, Router,
 };
 use serde::Deserialize;
-use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
     error::{AppError, Result},
+    ids::OrganizationId,
     middleware::app_auth::AppIdentity,
     models::organization::Organization,
     AppState,
@@ -46,12 +46,16 @@ async fn list_orgs(
 async fn get_org(
     State(state): State<AppState>,
     Extension(app): Extension<AppIdentity>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
 ) -> Result<Json<Organization>> {
+    let org_id: OrganizationId = id
+        .parse()
+        .map_err(|_| AppError::NotFound("organization not found".to_string()))?;
+
     let org: Option<Organization> = sqlx::query_as(
         "SELECT id, app_id, name, slug, org_type, logo, created_at, updated_at FROM organization WHERE id = $1 AND app_id = $2",
     )
-    .bind(id)
+    .bind(org_id)
     .bind(app.app_id)
     .fetch_optional(&state.db)
     .await?;
@@ -71,7 +75,7 @@ async fn create_org(
            VALUES ($1, $2, $3, $4, 'team')
            RETURNING id, app_id, name, slug, org_type, logo, created_at, updated_at"#,
     )
-    .bind(Uuid::new_v4())
+    .bind(OrganizationId::new())
     .bind(app.app_id)
     .bind(&body.name)
     .bind(&body.slug)

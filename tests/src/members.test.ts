@@ -38,13 +38,13 @@ describe('Members', () => {
 
   it('returns 404 when adding a user that does not exist in this app', async () => {
     const { status } = await api.post(`/orgs/${ctx.orgId}/members`, {
-      user_id: '00000000-0000-0000-0000-000000000000',
+      user_id: 'usr_00000000000000000000000000',
     })
     expect(status).toBe(404)
   })
 
   it('returns 404 when targeting an org from a different app', async () => {
-    const { status } = await api.get(`/orgs/00000000-0000-0000-0000-000000000000/members`)
+    const { status } = await api.get(`/orgs/org_00000000000000000000000000/members`)
     expect(status).toBe(404)
   })
 

@@ -3,10 +3,10 @@ use axum::{
     routing::get,
     Extension, Json, Router,
 };
-use uuid::Uuid;
 
 use crate::{
     error::{AppError, Result},
+    ids::UserId,
     middleware::app_auth::AppIdentity,
     models::user::User,
     AppState,
@@ -36,13 +36,17 @@ async fn list_users(
 async fn get_user(
     State(state): State<AppState>,
     Extension(app): Extension<AppIdentity>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
 ) -> Result<Json<User>> {
+    let user_id: UserId = id
+        .parse()
+        .map_err(|_| AppError::NotFound("user not found".to_string()))?;
+
     let user: Option<User> = sqlx::query_as(
         r#"SELECT id, app_id, name, email, email_verified, image, created_at, updated_at
            FROM "user" WHERE id = $1 AND app_id = $2"#,
     )
-    .bind(id)
+    .bind(user_id)
     .bind(app.app_id)
     .fetch_optional(&state.db)
     .await?;

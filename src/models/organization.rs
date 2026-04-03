@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::ids::{ApplicationId, OrganizationId};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
 #[sqlx(type_name = "org_type", rename_all = "lowercase")]
@@ -12,8 +13,8 @@ pub enum OrgType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Organization {
-    pub id: Uuid,
-    pub app_id: Uuid,
+    pub id: OrganizationId,
+    pub app_id: ApplicationId,
     pub name: String,
     pub slug: String,
     pub org_type: OrgType,

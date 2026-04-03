@@ -1,14 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{AccountId, UserId};
+use crate::ids::AdminUserId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Account {
-    pub id: AccountId,
-    pub provider_id: String,
-    pub user_id: UserId,
-    pub password_hash: Option<String>,
+pub struct AdminUser {
+    pub id: AdminUserId,
+    pub email: String,
+    pub password_hash: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

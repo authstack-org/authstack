@@ -4,10 +4,10 @@ use axum::{
     Extension, Json, Router,
 };
 use serde::Deserialize;
-use uuid::Uuid;
 
 use crate::{
     error::{AppError, Result},
+    ids::{ApplicationId, MemberId, OrganizationId, UserId},
     middleware::app_auth::AppIdentity,
     models::member::Member,
     AppState,
@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct AddMemberRequest {
-    pub user_id: Uuid,
+    pub user_id: UserId,
     pub role: Option<String>,
 }
 
@@ -28,8 +28,12 @@ pub fn router() -> Router<AppState> {
 async fn list_members(
     State(state): State<AppState>,
     Extension(app): Extension<AppIdentity>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<String>,
 ) -> Result<Json<Vec<Member>>> {
+    let org_id: OrganizationId = org_id
+        .parse()
+        .map_err(|_| AppError::NotFound("organization not found".to_string()))?;
+
     ensure_org_belongs_to_app(&state, org_id, app.app_id).await?;
 
     let members: Vec<Member> = sqlx::query_as(
@@ -45,12 +49,16 @@ async fn list_members(
 async fn add_member(
     State(state): State<AppState>,
     Extension(app): Extension<AppIdentity>,
-    Path(org_id): Path<Uuid>,
+    Path(org_id): Path<String>,
     Json(body): Json<AddMemberRequest>,
 ) -> Result<Json<Member>> {
+    let org_id: OrganizationId = org_id
+        .parse()
+        .map_err(|_| AppError::NotFound("organization not found".to_string()))?;
+
     ensure_org_belongs_to_app(&state, org_id, app.app_id).await?;
 
-    let user_exists: Option<Uuid> = sqlx::query_scalar(
+    let user_exists: Option<UserId> = sqlx::query_scalar(
         r#"SELECT id FROM "user" WHERE id = $1 AND app_id = $2"#,
     )
     .bind(body.user_id)
@@ -67,7 +75,7 @@ async fn add_member(
     let member: Member = sqlx::query_as(
         "INSERT INTO member (id, organization_id, user_id, role) VALUES ($1, $2, $3, $4) RETURNING id, organization_id, user_id, role, created_at, updated_at",
     )
-    .bind(Uuid::new_v4())
+    .bind(MemberId::new())
     .bind(org_id)
     .bind(body.user_id)
     .bind(role)
@@ -80,8 +88,15 @@ async fn add_member(
 async fn remove_member(
     State(state): State<AppState>,
     Extension(app): Extension<AppIdentity>,
-    Path((org_id, user_id)): Path<(Uuid, Uuid)>,
+    Path((org_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>> {
+    let org_id: OrganizationId = org_id
+        .parse()
+        .map_err(|_| AppError::NotFound("organization not found".to_string()))?;
+    let user_id: UserId = user_id
+        .parse()
+        .map_err(|_| AppError::NotFound("user not found".to_string()))?;
+
     ensure_org_belongs_to_app(&state, org_id, app.app_id).await?;
 
     sqlx::query("DELETE FROM member WHERE organization_id = $1 AND user_id = $2")
@@ -93,8 +108,8 @@ async fn remove_member(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-async fn ensure_org_belongs_to_app(state: &AppState, org_id: Uuid, app_id: Uuid) -> Result<()> {
-    let exists: Option<Uuid> = sqlx::query_scalar(
+async fn ensure_org_belongs_to_app(state: &AppState, org_id: OrganizationId, app_id: ApplicationId) -> Result<()> {
+    let exists: Option<OrganizationId> = sqlx::query_scalar(
         "SELECT id FROM organization WHERE id = $1 AND app_id = $2",
     )
     .bind(org_id)

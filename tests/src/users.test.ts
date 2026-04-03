@@ -24,7 +24,7 @@ describe('Users', () => {
   })
 
   it('returns 404 for a non-existent user id', async () => {
-    const { status } = await api.get(`/users/00000000-0000-0000-0000-000000000000`)
+    const { status } = await api.get(`/users/usr_00000000000000000000000000`)
     expect(status).toBe(404)
   })
 

@@ -99,23 +99,48 @@ If you see `failed to initialise JWT service`, the `JWT_PRIVATE_KEY` env var is 
 
 ---
 
-## 4. Register your first application
+## 4. Create your first admin account
 
-Once Aegis is running, register each consuming app via the admin API:
+Once Aegis is running, create the first admin account using `AEGIS_ADMIN_KEY`:
 
 ```bash
-curl -X POST https://auth.yourdomain.com/admin/applications \
+curl -X POST https://auth.yourdomain.com/admin/users \
   -H "Content-Type: application/json" \
   -H "X-Admin-Key: <AEGIS_ADMIN_KEY>" \
+  -d '{"email": "admin@yourdomain.com", "password": "your-strong-password"}'
+```
+
+This only needs to be done once. After that, open the admin panel in your browser:
+
+```
+https://auth.yourdomain.com/admin/login
+```
+
+Log in with the credentials you just created.
+
+---
+
+## 5. Register your first application
+
+In the admin panel, click **New application**, enter a name, and click **Create**. The app `id` and `client_secret` are shown once — copy them immediately.
+
+Alternatively, use the JSON API after logging in:
+
+```bash
+# Login and save the session cookie
+curl -c cookies.txt -X POST https://auth.yourdomain.com/admin/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "email=admin@yourdomain.com&password=your-strong-password"
+
+# Create an application
+curl -b cookies.txt -X POST https://auth.yourdomain.com/admin/applications \
+  -H "Content-Type: application/json" \
   -d '{"name": "my-app"}'
 ```
 
-Response:
-
 ```json
 {
-  "id": "...",
-  "client_id": "app_abc123",
+  "id": "app_01j4hz0r3fexwpbgm41z1w57at",
   "client_secret": "secret_xyz...",
   "name": "my-app"
 }
@@ -123,17 +148,17 @@ Response:
 
 > **Store `client_secret` immediately** — it is hashed and cannot be retrieved again.
 
-Give the `client_id` and `client_secret` to your app's BFF (backend-for-frontend). The BFF authenticates every Aegis request using HTTP Basic auth with those credentials.
+Give the `id` and `client_secret` to your app's BFF (backend-for-frontend). The BFF authenticates every Aegis request using HTTP Basic auth (`id:client_secret`) with those credentials.
 
 ---
 
-## 5. Updating
+## 6. Updating
 
 Push to `main`. The `docker-build-push` workflow rebuilds and pushes `aegis-latest`. In Dokploy, trigger a redeploy (or enable auto-deploy on image update).
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 ### Container starts and immediately stops with no error shown
 
@@ -163,10 +188,11 @@ The consuming service is likely using the wrong public key. Copy `JWT_PUBLIC_KEY
 
 ---
 
-## 7. Security checklist
+## 8. Security checklist
 
 - [ ] `AEGIS_ADMIN_KEY` is at least 32 random bytes (`openssl rand -hex 32`)
 - [ ] `JWT_PRIVATE_KEY` is stored only in Dokploy env vars — never committed to the repo
 - [ ] PostgreSQL is not publicly accessible (use a private network or internal Dokploy network)
 - [ ] HTTPS is terminated at the Dokploy reverse proxy (Traefik)
 - [ ] `client_secret` values are stored in each BFF's secret store, not in client-side code
+- [ ] Application `id` + `client_secret` are treated as credentials — the secret alone gates access

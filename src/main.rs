@@ -9,10 +9,13 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
 mod error;
+mod ids;
 mod middleware;
 mod models;
 mod routes;
 mod services;
+
+pub use ids::*;
 
 use config::Config;
 use services::jwt::JwtService;
@@ -69,9 +72,17 @@ async fn main() -> anyhow::Result<()> {
             crate::middleware::app_auth::authenticate_app,
         ));
 
+    let admin_protected = Router::new()
+        .merge(routes::admin::protected_router())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::middleware::admin_auth::authenticate_admin,
+        ));
+
     let app = Router::new()
         .merge(protected)
-        .merge(routes::admin::router())
+        .merge(routes::admin::open_router())
+        .merge(admin_protected)
         .merge(routes::jwks::router())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
