@@ -1,15 +1,15 @@
 use axum::{
+    Extension, Json, Router,
     extract::{Path, State},
     routing::get,
-    Extension, Json, Router,
 };
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     ids::UserId,
     middleware::app_auth::AppIdentity,
     models::user::User,
-    AppState,
 };
 
 pub fn router() -> Router<AppState> {
@@ -51,5 +51,6 @@ async fn get_user(
     .fetch_optional(&state.db)
     .await?;
 
-    user.map(Json).ok_or_else(|| AppError::NotFound("user not found".to_string()))
+    user.map(Json)
+        .ok_or_else(|| AppError::NotFound("user not found".to_string()))
 }

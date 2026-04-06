@@ -1,24 +1,12 @@
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{Json, Router, extract::State, routing::get};
 
-use crate::{error::Result, AppState};
+use crate::{AppState, error::Result};
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/.well-known/jwks.json", get(jwks))
 }
 
-/// Returns the public key set so consuming services can verify JWTs locally.
+/// RFC 7517 JWKS for the ES256 signing key (P-256 `x`/`y`, `kid` aligned with JWS headers).
 async fn jwks(State(state): State<AppState>) -> Result<Json<serde_json::Value>> {
-    // For ES256 the public key is an EC key — expose it as a JWK.
-    // In production, parse the PEM and build a proper JWK. For now, return the PEM
-    // wrapped so clients can use it directly.
-    Ok(Json(serde_json::json!({
-        "keys": [
-            {
-                "kty": "EC",
-                "use": "sig",
-                "alg": "ES256",
-                "pem": state.config.jwt_public_key,
-            }
-        ]
-    })))
+    Ok(Json(state.jwt.jwks().clone()))
 }

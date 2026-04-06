@@ -10,6 +10,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod config;
 mod error;
 mod ids;
+mod jwk;
 mod middleware;
 mod models;
 mod routes;
@@ -53,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
         &config.jwt_public_key,
         config.access_token_expiry_secs,
         config.refresh_token_expiry_secs,
+        config.jwt_kid.clone(),
     )
     .context("failed to initialise JWT service — check JWT_PRIVATE_KEY and JWT_PUBLIC_KEY")?;
 

@@ -1,17 +1,17 @@
 use axum::{
+    Extension, Json, Router,
     extract::{Path, State},
     routing::get,
-    Extension, Json, Router,
 };
 use serde::Deserialize;
 use validator::Validate;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     ids::OrganizationId,
     middleware::app_auth::AppIdentity,
     models::organization::Organization,
-    AppState,
 };
 
 #[derive(Debug, Deserialize, Validate)]
@@ -60,7 +60,8 @@ async fn get_org(
     .fetch_optional(&state.db)
     .await?;
 
-    org.map(Json).ok_or_else(|| AppError::NotFound("organization not found".to_string()))
+    org.map(Json)
+        .ok_or_else(|| AppError::NotFound("organization not found".to_string()))
 }
 
 async fn create_org(
@@ -68,7 +69,8 @@ async fn create_org(
     Extension(app): Extension<AppIdentity>,
     Json(body): Json<CreateOrgRequest>,
 ) -> Result<Json<Organization>> {
-    body.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
 
     let org: Organization = sqlx::query_as(
         r#"INSERT INTO organization (id, app_id, name, slug, org_type)

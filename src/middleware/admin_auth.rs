@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 
-use crate::{error::AppError, ids::AdminUserId, AppState};
+use crate::{AppState, error::AppError, ids::AdminUserId};
 
 #[derive(Clone, Debug)]
 pub struct AdminIdentity {
@@ -38,7 +38,7 @@ pub async fn authenticate_admin(
                 Ok(id) => id,
                 Err(_) => {
                     return AppError::Unauthorized("invalid admin token subject".to_string())
-                        .into_response()
+                        .into_response();
                 }
             };
             req.extensions_mut().insert(AdminIdentity {

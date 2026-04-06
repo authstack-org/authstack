@@ -12,13 +12,12 @@ pub async fn signup(
     email: &str,
     password: &str,
 ) -> Result<User> {
-    let existing: Option<UserId> = sqlx::query_scalar(
-        r#"SELECT id FROM "user" WHERE app_id = $1 AND email = $2"#,
-    )
-    .bind(app_id)
-    .bind(email)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<UserId> =
+        sqlx::query_scalar(r#"SELECT id FROM "user" WHERE app_id = $1 AND email = $2"#)
+            .bind(app_id)
+            .bind(email)
+            .fetch_optional(db)
+            .await?;
 
     if existing.is_some() {
         return Err(AppError::Conflict("email already registered".to_string()));

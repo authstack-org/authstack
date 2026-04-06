@@ -1,19 +1,15 @@
-use axum::{
-    extract::State,
-    routing::post,
-    Extension, Json, Router,
-};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use axum::{Extension, Json, Router, extract::State, routing::post};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     ids::{OrganizationId, RefreshSessionId, UserId},
     middleware::app_auth::AppIdentity,
     models::organization::OrgType,
     services::auth as auth_service,
-    AppState,
 };
 
 #[derive(Debug, Deserialize, Validate)]
@@ -59,11 +55,21 @@ async fn signup(
     Extension(app): Extension<AppIdentity>,
     Json(body): Json<SignupRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    body.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
 
-    let user = auth_service::signup(&state.db, app.app_id, &body.name, &body.email, &body.password).await?;
+    let user = auth_service::signup(
+        &state.db,
+        app.app_id,
+        &body.name,
+        &body.email,
+        &body.password,
+    )
+    .await?;
 
-    Ok(Json(serde_json::json!({ "id": user.id, "email": user.email, "name": user.name })))
+    Ok(Json(
+        serde_json::json!({ "id": user.id, "email": user.email, "name": user.name }),
+    ))
 }
 
 async fn login(
@@ -71,7 +77,8 @@ async fn login(
     Extension(app): Extension<AppIdentity>,
     Json(body): Json<LoginRequest>,
 ) -> Result<Json<TokenResponse>> {
-    body.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
 
     let result = auth_service::login(&state.db, app.app_id, &body.email, &body.password).await?;
 
@@ -79,10 +86,19 @@ async fn login(
 
     let org_type_str = format!("{:?}", result.org_type).to_lowercase();
     let access_token = jwt
-        .issue_access_token(result.user.id, app.app_id, result.org_id, &org_type_str, &result.role, &result.user.email)
+        .issue_access_token(
+            result.user.id,
+            app.app_id,
+            result.org_id,
+            &org_type_str,
+            &result.role,
+            &result.user.email,
+        )
         .map_err(AppError::Internal)?;
 
-    let (refresh_token, jti) = jwt.issue_refresh_token(result.user.id, app.app_id).map_err(|e| AppError::Internal(e))?;
+    let (refresh_token, jti) = jwt
+        .issue_refresh_token(result.user.id, app.app_id)
+        .map_err(|e| AppError::Internal(e))?;
 
     sqlx::query(
         "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
@@ -94,7 +110,11 @@ async fn login(
     .execute(&state.db)
     .await?;
 
-    Ok(Json(TokenResponse { access_token, refresh_token, token_type: "Bearer".to_string() }))
+    Ok(Json(TokenResponse {
+        access_token,
+        refresh_token,
+        token_type: "Bearer".to_string(),
+    }))
 }
 
 async fn refresh(
@@ -129,7 +149,10 @@ async fn refresh(
         .execute(&state.db)
         .await?;
 
-    let user_id: UserId = claims.sub.parse().map_err(|_| AppError::Unauthorized("invalid token".to_string()))?;
+    let user_id: UserId = claims
+        .sub
+        .parse()
+        .map_err(|_| AppError::Unauthorized("invalid token".to_string()))?;
 
     let row: (UserId, String, OrgType, String) = sqlx::query_as(
         r#"SELECT u.id, u.email, o.org_type, m.role
@@ -158,7 +181,9 @@ async fn refresh(
         .issue_access_token(uid, app.app_id, org_id, &org_type_str, &role, &email)
         .map_err(AppError::Internal)?;
 
-    let (new_refresh_token, new_jti) = jwt.issue_refresh_token(uid, app.app_id).map_err(AppError::Internal)?;
+    let (new_refresh_token, new_jti) = jwt
+        .issue_refresh_token(uid, app.app_id)
+        .map_err(AppError::Internal)?;
 
     sqlx::query(
         "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
@@ -170,7 +195,11 @@ async fn refresh(
     .execute(&state.db)
     .await?;
 
-    Ok(Json(TokenResponse { access_token, refresh_token: new_refresh_token, token_type: "Bearer".to_string() }))
+    Ok(Json(TokenResponse {
+        access_token,
+        refresh_token: new_refresh_token,
+        token_type: "Bearer".to_string(),
+    }))
 }
 
 async fn logout(

@@ -1,21 +1,21 @@
 use askama::Template;
 use axum::{
+    Json, Router,
     extract::{Extension, Form, State},
-    http::{header, HeaderMap},
+    http::{HeaderMap, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Json, Router,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     ids::{AdminUserId, ApplicationId},
     middleware::admin_auth::AdminIdentity,
     services::{admin_auth, password},
-    AppState,
 };
 
 // ── Template structs ──────────────────────────────────────────────────────────
@@ -78,7 +78,10 @@ pub fn protected_router() -> Router<AppState> {
 // ── Open handlers ─────────────────────────────────────────────────────────────
 
 async fn login_page() -> impl IntoResponse {
-    render(LoginTemplate { error: None, email: None })
+    render(LoginTemplate {
+        error: None,
+        email: None,
+    })
 }
 
 #[derive(Deserialize)]
@@ -87,10 +90,7 @@ struct LoginForm {
     password: String,
 }
 
-async fn process_login(
-    State(state): State<AppState>,
-    Form(body): Form<LoginForm>,
-) -> Response {
+async fn process_login(State(state): State<AppState>, Form(body): Form<LoginForm>) -> Response {
     let user = match admin_auth::login_admin(&state.db, &body.email, &body.password).await {
         Ok(Some(u)) => u,
         Ok(None) => {
@@ -120,9 +120,7 @@ async fn process_login(
         }
     };
 
-    let cookie = format!(
-        "admin_token={token}; Path=/; HttpOnly; SameSite=Strict"
-    );
+    let cookie = format!("admin_token={token}; Path=/; HttpOnly; SameSite=Strict");
 
     (
         [(header::SET_COOKIE, cookie)],
@@ -242,20 +240,22 @@ async fn create_app(
     }
 
     let id = ApplicationId::new();
-    let client_secret = format!("secret_{}", &Uuid::new_v4().to_string().replace('-', "")[..32]);
+    let client_secret = format!(
+        "secret_{}",
+        &Uuid::new_v4().to_string().replace('-', "")[..32]
+    );
     let secret_hash = match password::hash(&client_secret) {
         Ok(h) => h,
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    let result = sqlx::query(
-        "INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)",
-    )
-    .bind(id)
-    .bind(&secret_hash)
-    .bind(&name)
-    .execute(&state.db)
-    .await;
+    let result =
+        sqlx::query("INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)")
+            .bind(id)
+            .bind(&secret_hash)
+            .bind(&name)
+            .execute(&state.db)
+            .await;
 
     if let Err(e) = result {
         return AppError::Database(e).into_response();
@@ -317,17 +317,18 @@ async fn create_application_json(
     }
 
     let id = ApplicationId::new();
-    let client_secret = format!("secret_{}", &Uuid::new_v4().to_string().replace('-', "")[..32]);
+    let client_secret = format!(
+        "secret_{}",
+        &Uuid::new_v4().to_string().replace('-', "")[..32]
+    );
     let secret_hash = password::hash(&client_secret).map_err(AppError::Internal)?;
 
-    sqlx::query(
-        "INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)",
-    )
-    .bind(id)
-    .bind(&secret_hash)
-    .bind(&name)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)")
+        .bind(id)
+        .bind(&secret_hash)
+        .bind(&name)
+        .execute(&state.db)
+        .await?;
 
     Ok((
         axum::http::StatusCode::CREATED,

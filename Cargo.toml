@@ -46,5 +46,8 @@ validator = { version = "0.19", features = ["derive"] }
 # Encoding
 base64 = "0.22"
 
+# EC P-256 — PEM → JWK coordinates for JWKS
+p256 = { version = "0.13", features = ["pem"] }
+
 # Templating
 askama = "0.15"

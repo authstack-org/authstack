@@ -3,9 +3,9 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 
-use crate::{error::AppError, ids::ApplicationId, services::password, AppState};
+use crate::{AppState, error::AppError, ids::ApplicationId, services::password};
 
 #[derive(Clone, Debug)]
 pub struct AppIdentity {
@@ -42,20 +42,21 @@ pub async fn authenticate_app(
         .parse()
         .map_err(|_| AppError::Unauthorized("invalid application id".to_string()))?;
 
-    let row: Option<(ApplicationId, String)> = sqlx::query_as(
-        "SELECT id, client_secret_hash FROM application WHERE id = $1",
-    )
-    .bind(app_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let row: Option<(ApplicationId, String)> =
+        sqlx::query_as("SELECT id, client_secret_hash FROM application WHERE id = $1")
+            .bind(app_id)
+            .fetch_optional(&state.db)
+            .await?;
 
-    let (app_id, secret_hash) = row
-        .ok_or_else(|| AppError::Unauthorized("invalid client credentials".to_string()))?;
+    let (app_id, secret_hash) =
+        row.ok_or_else(|| AppError::Unauthorized("invalid client credentials".to_string()))?;
 
     let valid = password::verify(client_secret, &secret_hash).map_err(AppError::Internal)?;
 
     if !valid {
-        return Err(AppError::Unauthorized("invalid client credentials".to_string()));
+        return Err(AppError::Unauthorized(
+            "invalid client credentials".to_string(),
+        ));
     }
 
     req.extensions_mut().insert(AppIdentity { app_id });

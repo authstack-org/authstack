@@ -1,16 +1,16 @@
 use axum::{
+    Extension, Json, Router,
     extract::{Path, State},
     routing::{delete, get},
-    Extension, Json, Router,
 };
 use serde::Deserialize;
 
 use crate::{
+    AppState,
     error::{AppError, Result},
     ids::{ApplicationId, MemberId, OrganizationId, UserId},
     middleware::app_auth::AppIdentity,
     models::member::Member,
-    AppState,
 };
 
 #[derive(Debug, Deserialize)]
@@ -58,13 +58,12 @@ async fn add_member(
 
     ensure_org_belongs_to_app(&state, org_id, app.app_id).await?;
 
-    let user_exists: Option<UserId> = sqlx::query_scalar(
-        r#"SELECT id FROM "user" WHERE id = $1 AND app_id = $2"#,
-    )
-    .bind(body.user_id)
-    .bind(app.app_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let user_exists: Option<UserId> =
+        sqlx::query_scalar(r#"SELECT id FROM "user" WHERE id = $1 AND app_id = $2"#)
+            .bind(body.user_id)
+            .bind(app.app_id)
+            .fetch_optional(&state.db)
+            .await?;
 
     if user_exists.is_none() {
         return Err(AppError::NotFound("user not found".to_string()));
@@ -108,14 +107,17 @@ async fn remove_member(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-async fn ensure_org_belongs_to_app(state: &AppState, org_id: OrganizationId, app_id: ApplicationId) -> Result<()> {
-    let exists: Option<OrganizationId> = sqlx::query_scalar(
-        "SELECT id FROM organization WHERE id = $1 AND app_id = $2",
-    )
-    .bind(org_id)
-    .bind(app_id)
-    .fetch_optional(&state.db)
-    .await?;
+async fn ensure_org_belongs_to_app(
+    state: &AppState,
+    org_id: OrganizationId,
+    app_id: ApplicationId,
+) -> Result<()> {
+    let exists: Option<OrganizationId> =
+        sqlx::query_scalar("SELECT id FROM organization WHERE id = $1 AND app_id = $2")
+            .bind(org_id)
+            .bind(app_id)
+            .fetch_optional(&state.db)
+            .await?;
 
     exists
         .map(|_| ())

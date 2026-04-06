@@ -77,9 +77,9 @@ macro_rules! define_id {
 }
 
 define_id!(ApplicationId, ApplicationType, "app");
-define_id!(UserId,        UserType,        "usr");
+define_id!(UserId, UserType, "usr");
 define_id!(OrganizationId, OrganizationType, "org");
-define_id!(MemberId,      MemberType,      "mbr");
-define_id!(AccountId,     AccountType,     "acct");
+define_id!(MemberId, MemberType, "mbr");
+define_id!(AccountId, AccountType, "acct");
 define_id!(RefreshSessionId, RefreshSessionType, "rsess");
-define_id!(AdminUserId,   AdminUserType,   "adm");
+define_id!(AdminUserId, AdminUserType, "adm");

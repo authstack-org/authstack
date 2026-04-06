@@ -1,11 +1,13 @@
 use anyhow::Context;
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub database_url: String,
     pub jwt_private_key: String,
     pub jwt_public_key: String,
+    /// Stable key id for JWS `kid` and JWKS `kid` (must match).
+    pub jwt_kid: String,
     pub admin_key: String,
     pub access_token_expiry_secs: u64,
     pub refresh_token_expiry_secs: u64,
@@ -18,6 +20,7 @@ impl Config {
             database_url: required("DATABASE_URL")?,
             jwt_private_key: decode_pem_key(required("JWT_PRIVATE_KEY")?)?,
             jwt_public_key: decode_pem_key(required("JWT_PUBLIC_KEY")?)?,
+            jwt_kid: optional_str("JWT_KID", "aegis-1"),
             admin_key: required("AEGIS_ADMIN_KEY")?,
             access_token_expiry_secs: optional("ACCESS_TOKEN_EXPIRY_SECS", 900),
             refresh_token_expiry_secs: optional("REFRESH_TOKEN_EXPIRY_SECS", 2_592_000),
@@ -50,4 +53,12 @@ fn optional<T: std::str::FromStr + Clone>(key: &str, default: T) -> T {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
+}
+
+fn optional_str(key: &str, default: &str) -> String {
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default.to_string())
 }
