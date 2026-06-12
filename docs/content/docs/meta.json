@@ -1,0 +1,11 @@
+{
+  "title": "Aegis",
+  "pages": [
+    "index",
+    "getting-started",
+    "configuration",
+    "authentication",
+    "api",
+    "production"
+  ]
+}

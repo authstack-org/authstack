@@ -1,0 +1,136 @@
+---
+title: API Reference
+description: HTTP routes exposed by Aegis.
+---
+
+## Admin panel routes
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/admin/login` | None | Login page. |
+| `POST` | `/admin/login` | None | Submit login form and set the session cookie. |
+| `POST` | `/admin/logout` | Cookie | Clear the admin session. |
+| `GET` | `/admin/dashboard` | Cookie | List all applications. |
+| `GET` | `/admin/apps/new` | Cookie | New application form. |
+| `POST` | `/admin/apps` | Cookie | Create an application from the form. |
+
+## Admin JSON API
+
+### Create the first admin
+
+```bash
+curl -X POST http://localhost:8080/admin/users \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Key: <AEGIS_ADMIN_KEY>" \
+  -d '{"email": "admin@example.com", "password": "your-password"}'
+```
+
+```json
+{
+  "id": "adm_01j4hz0r3fexwpbgm41z1w57at",
+  "email": "admin@example.com"
+}
+```
+
+### Create an application
+
+```bash
+curl -c cookies.txt -X POST http://localhost:8080/admin/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "email=admin@example.com&password=your-password"
+
+curl -b cookies.txt -X POST http://localhost:8080/admin/applications \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-app"}'
+```
+
+```json
+{
+  "id": "app_01j4hz0r3fexwpbgm41z1w57at",
+  "client_secret": "secret_xyz...",
+  "name": "my-app"
+}
+```
+
+The `client_secret` is only returned once.
+
+## Auth routes
+
+All routes in this section require HTTP Basic auth with `<app_id>:<client_secret>`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/auth/signup` | Create a user and personal organization. |
+| `POST` | `/auth/login` | Authenticate a user and return access + refresh tokens. |
+| `POST` | `/auth/refresh` | Rotate a refresh token and return a new token pair. |
+| `POST` | `/auth/logout` | Revoke a refresh token. |
+
+### Signup
+
+```bash
+curl -X POST http://localhost:8080/auth/signup \
+  -H "Authorization: Basic $(echo -n 'app_01j4hz0r3fexwpbgm41z1w57at:secret_xyz' | base64)" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "email": "alice@example.com", "password": "hunter2secure"}'
+```
+
+```json
+{
+  "id": "usr_01j4hz0r3fexwpbgm41z1w57at",
+  "email": "alice@example.com",
+  "name": "Alice"
+}
+```
+
+### Login
+
+```bash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Authorization: Basic $(echo -n 'app_01j4hz0r3fexwpbgm41z1w57at:secret_xyz' | base64)" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "alice@example.com", "password": "hunter2secure"}'
+```
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<jwt>",
+  "token_type": "Bearer"
+}
+```
+
+## Bearer auth routes
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `POST` | `/auth/switch-org` | Bearer token | Issue a token pair for another organization the user belongs to. |
+| `GET` | `/me/organizations` | Bearer token | List organizations the current user belongs to. |
+
+## Users
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/users` | List all users in this application. |
+| `GET` | `/users/:id` | Get a user by ID. |
+
+## Organizations
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/orgs` | List all organizations in this application. |
+| `POST` | `/orgs` | Create a new team organization. |
+| `GET` | `/orgs/:id` | Get an organization by ID. |
+
+## Members
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/orgs/:id/members` | List members of an organization. |
+| `POST` | `/orgs/:id/members` | Add a user to an organization. |
+| `DELETE` | `/orgs/:id/members/:user_id` | Remove a user from an organization. |
+
+## JWKS
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/.well-known/jwks.json` | Public key set for JWT verification. |

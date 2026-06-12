@@ -1,0 +1,56 @@
+---
+title: Overview
+description: A self-hosted, multi-tenant authentication service for backend applications.
+---
+
+Aegis is a headless authentication service built with Rust, Axum, and PostgreSQL.
+
+It acts as the auth backend for multiple applications, similar in spirit to Clerk or Kinde, but self-hosted. Each application is an isolated tenant: users, organizations, and credentials are fully scoped per app.
+
+```txt
+Mobile / Web  ->  App Backend (BFF)  ->  Aegis
+                  holds client_secret     issues JWTs
+```
+
+## How it works
+
+Every application registers with Aegis and receives an `id` and a `client_secret`. Backend services authenticate requests to Aegis using HTTP Basic auth with those credentials.
+
+Aegis does not talk directly to browser or mobile clients. Calls come through the application's backend-for-frontend, which owns the `client_secret`.
+
+On signup, Aegis automatically creates a personal organization for the user within that app. Team organizations can be created later. Issued JWTs include `org_id`, `org_type`, and `role`, so the consuming app can make access decisions without a second round trip.
+
+## Core concepts
+
+| Concept | Description |
+| --- | --- |
+| Application | An isolated tenant in Aegis. Each app has its own users, organizations, accounts, and credentials. |
+| Client secret | The shared secret used by an app backend to call Aegis. Store it server-side only. |
+| User | A person scoped to one application. |
+| Organization | A personal or team organization inside an application. |
+| Member | A user's membership and role inside an organization. |
+| Access token | ES256-signed JWT consumed by the app backend. |
+| Refresh token | Rotating token used to obtain a new token pair. |
+
+## Entity IDs
+
+All entity IDs are TypeIDs: prefixed, sortable identifiers.
+
+| Prefix | Entity |
+| --- | --- |
+| `app_` | Application |
+| `usr_` | User |
+| `org_` | Organization |
+| `mbr_` | Member |
+| `acct_` | Account |
+| `rsess_` | Refresh session |
+| `adm_` | Admin user |
+
+## Security model
+
+- Users, organizations, and credentials are scoped to an `app_id`.
+- Passwords are hashed with Argon2.
+- JWTs are signed with ES256. Only Aegis holds the private key.
+- Refresh tokens rotate on every use.
+- The admin panel uses signed JWTs stored in `HttpOnly; SameSite=Strict` cookies.
+- `X-Admin-Key` is only used to bootstrap the first admin account.

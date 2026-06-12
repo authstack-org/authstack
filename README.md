@@ -6,7 +6,7 @@ Acts as the auth backend for multiple applications — similar in spirit to Cler
 
 ## Documentation
 
-- [Running in production](docs/production.md)
+- [Aegis documentation](docs)
 
 ## How it works
 

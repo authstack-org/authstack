@@ -1,0 +1,90 @@
+---
+title: Getting Started
+description: Run Aegis locally with Docker and create the key material it needs.
+---
+
+## Prerequisites
+
+- Docker and Docker Compose v2.
+- An ES256 key pair generated with `make keys`.
+
+You do not need a local Rust or PostgreSQL installation for the containerized setup.
+
+## Quick start
+
+```bash
+# 1. Generate an ES256 key pair
+make keys
+
+# 2. Copy the output into a .env file
+cp .env.example .env
+# Edit .env and paste in JWT_PRIVATE_KEY and JWT_PUBLIC_KEY
+
+# 3. Start the database and API
+make up
+make logs
+```
+
+The API is available at `http://localhost:8080` once `make up` completes.
+
+## Key generation
+
+Aegis uses ES256, ECDSA P-256, for JWTs.
+
+```bash
+make keys
+```
+
+The command prints two lines ready to paste into `.env`:
+
+```txt
+JWT_PRIVATE_KEY=LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t...
+JWT_PUBLIC_KEY=LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0...
+```
+
+The values are base64-encoded PEM files on a single line. They can be pasted directly into `.env` files, Docker environment variables, or Dokploy. Aegis decodes them at startup.
+
+Keep `JWT_PRIVATE_KEY` secret. `JWT_PUBLIC_KEY` can be shared with services that verify tokens locally or via `GET /.well-known/jwks.json`.
+
+## Make commands
+
+| Command | Description |
+| --- | --- |
+| `make up` | Build images and start DB + API in the background. |
+| `make down` | Stop containers and keep the DB volume. |
+| `make clean` | Stop containers and wipe the DB volume. |
+| `make test` | Run tests against already-running containers. |
+| `make test-clean` | Full isolated test run: wipe, start, test, teardown. |
+| `make logs` | Tail API logs. |
+| `make db-shell` | Open a `psql` shell into the running database. |
+| `make keys` | Generate a fresh ES256 key pair. |
+
+## Integration tests
+
+For a full isolated CI-style run:
+
+```bash
+make test-clean
+```
+
+To run tests against already-running containers:
+
+```bash
+make up
+make test
+```
+
+## Local development without Docker
+
+Requires Rust stable and a running PostgreSQL instance.
+
+```bash
+cp .env.example .env
+# Fill in DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, and AEGIS_ADMIN_KEY
+
+cargo run
+cargo check
+cargo build
+```
+
+Aegis runs migrations automatically on startup and listens on port `8080` by default.
