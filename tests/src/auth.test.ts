@@ -5,6 +5,13 @@ const TEST_EMAIL    = `test-${Date.now()}@example.com`
 const TEST_PASSWORD = 'password123'
 const TEST_NAME     = 'Test User'
 
+let switchOrgId: string | undefined
+
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const payload = token.split('.')[1]
+  return JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8')) as Record<string, unknown>
+}
+
 describe('Auth — signup', () => {
   it('returns 422 when email is invalid', async () => {
     const { status } = await api.post('/auth/signup', {
@@ -80,7 +87,83 @@ describe('Auth — login', () => {
   })
 })
 
+describe('Auth — user organizations and org switching', () => {
+  it('lists organizations for the authenticated user', async () => {
+    const orgRes = await api.post<{
+      id: string
+    }>('/orgs', { name: 'Switchable Org', slug: `switchable-${Date.now()}` })
+    expect(orgRes.status).toBe(200)
+    switchOrgId = orgRes.body.id
+
+    const memberRes = await api.post(`/orgs/${switchOrgId}/members`, {
+      user_id: ctx.userId,
+      role:    'member',
+    })
+    expect(memberRes.status).toBe(200)
+
+    const { status, body } = await api.get<Array<{
+      organization: { id: string; org_type: string }
+      role: string
+    }>>('/me/organizations', { Authorization: `Bearer ${ctx.accessToken}` })
+
+    expect(status).toBe(200)
+    expect(body.some((item) => item.organization.org_type === 'personal')).toBe(true)
+    expect(body.some((item) => item.organization.id === switchOrgId && item.role === 'member')).toBe(true)
+  })
+
+  it('switches the active organization in the issued token', async () => {
+    const { status, body } = await api.post<{
+      access_token: string
+      refresh_token: string
+      token_type: string
+    }>('/auth/switch-org', { org_id: switchOrgId }, { Authorization: `Bearer ${ctx.accessToken}` })
+
+    expect(status).toBe(200)
+    expect(body.access_token).toBeTruthy()
+    expect(body.refresh_token).toBeTruthy()
+    expect(body.token_type).toBe('Bearer')
+
+    const claims = decodeJwtPayload(body.access_token)
+    expect(claims.org_id).toBe(switchOrgId)
+    expect(claims.org_type).toBe('team')
+    expect(claims.role).toBe('member')
+  })
+
+  it('rejects switching to an organization where the user is not a member', async () => {
+    const orgRes = await api.post<{ id: string }>(
+      '/orgs',
+      { name: 'Not A Member Org', slug: `not-member-${Date.now()}` },
+    )
+    expect(orgRes.status).toBe(200)
+
+    const { status } = await api.post(
+      '/auth/switch-org',
+      { org_id: orgRes.body.id },
+      { Authorization: `Bearer ${ctx.accessToken}` },
+    )
+    expect(status).toBe(403)
+  })
+})
+
 describe('Auth — refresh', () => {
+  it('returns a token pair for the requested organization when org_id is supplied', async () => {
+    const { status, body } = await api.post<{
+      access_token: string
+      refresh_token: string
+    }>('/auth/refresh', { refresh_token: ctx.refreshToken, org_id: switchOrgId })
+
+    expect(status).toBe(200)
+    expect(body.access_token).toBeTruthy()
+    expect(body.refresh_token).toBeTruthy()
+
+    const claims = decodeJwtPayload(body.access_token)
+    expect(claims.org_id).toBe(switchOrgId)
+    expect(claims.org_type).toBe('team')
+    expect(claims.role).toBe('member')
+
+    ctx.refreshToken = body.refresh_token
+  })
+
   it('returns a new token pair using the refresh token', async () => {
     const { status, body } = await api.post<{
       access_token: string
@@ -90,6 +173,9 @@ describe('Auth — refresh', () => {
     expect(status).toBe(200)
     expect(body.access_token).toBeTruthy()
     expect(body.refresh_token).toBeTruthy()
+
+    const claims = decodeJwtPayload(body.access_token)
+    expect(claims.org_type).toBe('personal')
 
     ctx.refreshToken = body.refresh_token
   })

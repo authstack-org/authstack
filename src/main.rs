@@ -83,6 +83,8 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(protected)
+        .merge(routes::auth::bearer_router())
+        .merge(routes::me::router())
         .merge(routes::admin::open_router())
         .merge(admin_protected)
         .merge(routes::jwks::router())

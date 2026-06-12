@@ -1,4 +1,4 @@
-use axum::{Extension, Json, Router, extract::State, routing::post};
+use axum::{Extension, Json, Router, extract::State, http::HeaderMap, routing::post};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
@@ -9,6 +9,7 @@ use crate::{
     ids::{OrganizationId, RefreshSessionId, UserId},
     middleware::app_auth::AppIdentity,
     models::organization::OrgType,
+    routes::me,
     services::auth as auth_service,
 };
 
@@ -33,6 +34,12 @@ pub struct LoginRequest {
 #[derive(Debug, Deserialize)]
 pub struct RefreshRequest {
     pub refresh_token: String,
+    pub org_id: Option<OrganizationId>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SwitchOrgRequest {
+    pub org_id: OrganizationId,
 }
 
 #[derive(Debug, Serialize)]
@@ -48,6 +55,10 @@ pub fn router() -> Router<AppState> {
         .route("/auth/login", post(login))
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
+}
+
+pub fn bearer_router() -> Router<AppState> {
+    Router::new().route("/auth/switch-org", post(switch_org))
 }
 
 async fn signup(
@@ -154,27 +165,38 @@ async fn refresh(
         .parse()
         .map_err(|_| AppError::Unauthorized("invalid token".to_string()))?;
 
-    let row: (UserId, String, OrgType, String) = sqlx::query_as(
-        r#"SELECT u.id, u.email, o.org_type, m.role
+    let row: (UserId, String) = sqlx::query_as(
+        r#"SELECT u.id, u.email
            FROM "user" u
-           JOIN member m ON m.user_id = u.id
-           JOIN organization o ON o.id = m.organization_id
-           WHERE u.id = $1 AND o.org_type = 'personal'"#,
+           WHERE u.id = $1 AND u.app_id = $2"#,
     )
     .bind(user_id)
+    .bind(app.app_id)
     .fetch_one(&state.db)
     .await
     .map_err(|_| AppError::Unauthorized("user not found".to_string()))?;
 
-    let (uid, email, org_type, role) = row;
+    let (uid, email) = row;
 
-    let org_id: OrganizationId = sqlx::query_scalar(
-        "SELECT id FROM organization WHERE app_id = $1 AND org_type = 'personal' AND id IN (SELECT organization_id FROM member WHERE user_id = $2)",
-    )
-    .bind(app.app_id)
-    .bind(uid)
-    .fetch_one(&state.db)
-    .await?;
+    let (org_id, org_type, role) = match body.org_id {
+        Some(org_id) => {
+            let (org_type, role) = me::membership_for_org(&state, app.app_id, uid, org_id).await?;
+            (org_id, org_type, role)
+        }
+        None => {
+            let row: (OrganizationId, OrgType, String) = sqlx::query_as(
+                r#"SELECT m.organization_id, o.org_type, m.role
+                   FROM member m
+                   JOIN organization o ON o.id = m.organization_id
+                   WHERE m.user_id = $1 AND o.app_id = $2 AND o.org_type = 'personal'"#,
+            )
+            .bind(uid)
+            .bind(app.app_id)
+            .fetch_one(&state.db)
+            .await?;
+            row
+        }
+    };
 
     let org_type_str = format!("{:?}", org_type).to_lowercase();
     let access_token = jwt
@@ -198,6 +220,57 @@ async fn refresh(
     Ok(Json(TokenResponse {
         access_token,
         refresh_token: new_refresh_token,
+        token_type: "Bearer".to_string(),
+    }))
+}
+
+async fn switch_org(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SwitchOrgRequest>,
+) -> Result<Json<TokenResponse>> {
+    let user = me::authenticate_user(&state, &headers).await?;
+    let (org_type, role) =
+        me::membership_for_org(&state, user.app_id, user.user_id, body.org_id).await?;
+
+    let email: String =
+        sqlx::query_scalar(r#"SELECT email FROM "user" WHERE id = $1 AND app_id = $2"#)
+            .bind(user.user_id)
+            .bind(user.app_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::Unauthorized("user not found".to_string()))?;
+
+    let org_type_str = format!("{:?}", org_type).to_lowercase();
+    let access_token = state
+        .jwt
+        .issue_access_token(
+            user.user_id,
+            user.app_id,
+            body.org_id,
+            &org_type_str,
+            &role,
+            &email,
+        )
+        .map_err(AppError::Internal)?;
+    let (refresh_token, jti) = state
+        .jwt
+        .issue_refresh_token(user.user_id, user.app_id)
+        .map_err(AppError::Internal)?;
+
+    sqlx::query(
+        "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
+    )
+    .bind(RefreshSessionId::new())
+    .bind(user.user_id)
+    .bind(&jti)
+    .bind(state.config.refresh_token_expiry_secs as f64)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(TokenResponse {
+        access_token,
+        refresh_token,
         token_type: "Bearer".to_string(),
     }))
 }
