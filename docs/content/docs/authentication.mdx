@@ -1,6 +1,6 @@
 ---
 title: Authentication
-description: How applications, admins, users, and tokens authenticate with Aegis.
+description: How applications, admins, users, and tokens authenticate with Authstack.
 ---
 
 ## Application authentication
@@ -15,14 +15,14 @@ The `app_id` and `client_secret` are returned when an admin creates an applicati
 
 ## Admin authentication
 
-Aegis ships with a browser-based admin panel at `/admin/login`.
+Authstack ships with a browser-based admin panel at `/admin/login`.
 
-The first admin account is bootstrapped with `AEGIS_ADMIN_KEY`:
+The first admin account is bootstrapped with `AUTHSTACK_ADMIN_KEY`:
 
 ```bash
 curl -X POST http://localhost:8080/admin/users \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Key: <AEGIS_ADMIN_KEY>" \
+  -H "X-Admin-Key: <AUTHSTACK_ADMIN_KEY>" \
   -d '{"email": "admin@example.com", "password": "your-password"}'
 ```
 
@@ -70,10 +70,10 @@ Every refresh request invalidates the old refresh token and returns a new token 
 
 ## JWKS
 
-Consuming services can fetch Aegis' public key set:
+Consuming services can fetch Authstack' public key set:
 
 ```txt
 GET /.well-known/jwks.json
 ```
 
-Use the JWKS endpoint to verify Aegis-issued JWTs locally without calling Aegis on every request.
+Use the JWKS endpoint to verify Authstack-issued JWTs locally without calling Authstack on every request.

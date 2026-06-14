@@ -1,6 +1,6 @@
 ---
 title: API Reference
-description: HTTP routes exposed by Aegis.
+description: HTTP routes exposed by Authstack.
 ---
 
 ## Admin panel routes
@@ -21,7 +21,7 @@ description: HTTP routes exposed by Aegis.
 ```bash
 curl -X POST http://localhost:8080/admin/users \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Key: <AEGIS_ADMIN_KEY>" \
+  -H "X-Admin-Key: <AUTHSTACK_ADMIN_KEY>" \
   -d '{"email": "admin@example.com", "password": "your-password"}'
 ```
 

@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "aegis=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "authstack=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("aegis listening on {}", addr);
+    tracing::info!("authstack listening on {}", addr);
     axum::serve(listener, app).await?;
 
     Ok(())

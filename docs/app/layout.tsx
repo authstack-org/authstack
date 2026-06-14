@@ -6,10 +6,10 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Aegis Docs',
-    template: '%s | Aegis Docs',
+    default: 'Authstack Docs',
+    template: '%s | Authstack Docs',
   },
-  description: 'Documentation for Aegis, a self-hosted multi-tenant authentication service.',
+  description: 'Documentation for Authstack, a self-hosted multi-tenant authentication service.',
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

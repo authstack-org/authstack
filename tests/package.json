@@ -1,5 +1,5 @@
 {
-  "name": "aegis-tests",
+  "name": "authstack-tests",
   "private": true,
   "scripts": {
     "test": "bunx vitest run",

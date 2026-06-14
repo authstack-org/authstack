@@ -11,9 +11,9 @@ import { join } from 'node:path'
 
 const CTX_FILE      = join(process.cwd(), '.vitest-ctx.json')
 const BASE_URL      = process.env.API_URL            ?? 'http://localhost:8080'
-const ADMIN_KEY     = process.env.AEGIS_ADMIN_KEY    ?? 'change_me_in_tests'
-const ADMIN_EMAIL   = process.env.AEGIS_ADMIN_EMAIL  ?? 'test-admin@aegis.local'
-const ADMIN_PASSWORD = process.env.AEGIS_ADMIN_PASSWORD ?? 'test-admin-password-123'
+const ADMIN_KEY     = process.env.AUTHSTACK_ADMIN_KEY    ?? 'change_me_in_tests'
+const ADMIN_EMAIL   = process.env.AUTHSTACK_ADMIN_EMAIL  ?? 'test-admin@authstack.local'
+const ADMIN_PASSWORD = process.env.AUTHSTACK_ADMIN_PASSWORD ?? 'test-admin-password-123'
 
 export async function setup(): Promise<void> {
   if (existsSync(CTX_FILE)) unlinkSync(CTX_FILE)
@@ -31,7 +31,7 @@ export async function setup(): Promise<void> {
     const text = await createAdminRes.text()
     throw new Error(
       `Failed to create admin user (${createAdminRes.status}): ${text}\n` +
-      `Is the API running at ${BASE_URL}? Is AEGIS_ADMIN_KEY correct?`,
+      `Is the API running at ${BASE_URL}? Is AUTHSTACK_ADMIN_KEY correct?`,
     )
   }
 
@@ -46,7 +46,7 @@ export async function setup(): Promise<void> {
     const text = await loginRes.text()
     throw new Error(
       `Admin login failed (${loginRes.status}): ${text}\n` +
-      `Check AEGIS_ADMIN_EMAIL and AEGIS_ADMIN_PASSWORD.`,
+      `Check AUTHSTACK_ADMIN_EMAIL and AUTHSTACK_ADMIN_PASSWORD.`,
     )
   }
   const rawCookie = loginRes.headers.get('set-cookie')

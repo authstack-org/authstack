@@ -6,9 +6,9 @@
 // here to test the full login / protected-route / logout flow.
 
 const BASE_URL       = process.env.API_URL             ?? 'http://localhost:8080'
-const ADMIN_KEY      = process.env.AEGIS_ADMIN_KEY     ?? 'change_me_in_tests'
-const ADMIN_EMAIL    = process.env.AEGIS_ADMIN_EMAIL   ?? 'test-admin@aegis.local'
-const ADMIN_PASSWORD = process.env.AEGIS_ADMIN_PASSWORD ?? 'test-admin-password-123'
+const ADMIN_KEY      = process.env.AUTHSTACK_ADMIN_KEY     ?? 'change_me_in_tests'
+const ADMIN_EMAIL    = process.env.AUTHSTACK_ADMIN_EMAIL   ?? 'test-admin@authstack.local'
+const ADMIN_PASSWORD = process.env.AUTHSTACK_ADMIN_PASSWORD ?? 'test-admin-password-123'
 
 // Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ describe('Admin users — POST /admin/users', () => {
   })
 
   it('creates a new admin user with a unique email', async () => {
-    const unique = `admin-${Date.now()}@aegis.local`
+    const unique = `admin-${Date.now()}@authstack.local`
     const res = await fetch(`${BASE_URL}/admin/users`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_KEY },
@@ -93,7 +93,7 @@ describe('Admin — POST /admin/login', () => {
     const res = await fetch(`${BASE_URL}/admin/login`, {
       method:   'POST',
       headers:  { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:     new URLSearchParams({ email: 'nobody@aegis.local', password: ADMIN_PASSWORD }).toString(),
+      body:     new URLSearchParams({ email: 'nobody@authstack.local', password: ADMIN_PASSWORD }).toString(),
       redirect: 'manual',
     })
     expect(res.status).toBe(200)

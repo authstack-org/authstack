@@ -9,8 +9,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY dist/aegis /app/aegis
+COPY dist/authstack /app/authstack
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/aegis"]
+ENTRYPOINT ["/app/authstack"]

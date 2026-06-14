@@ -1,4 +1,4 @@
-# aegis
+# authstack
 
 Headless, multi-tenant authentication service. Built with Rust, Axum, and PostgreSQL.
 
@@ -6,18 +6,18 @@ Acts as the auth backend for multiple applications — similar in spirit to Cler
 
 ## Documentation
 
-- [Aegis documentation](docs)
+- [Authstack documentation](docs)
 
 ## How it works
 
-Every application registers with Aegis and receives an `id` (TypeID, e.g. `app_01j4hz...`) and a `client_secret`. Backend services (BFFs) authenticate all requests to Aegis using HTTP Basic auth with those credentials. Aegis never talks directly to a browser or mobile client — all calls come through the app's backend.
+Every application registers with Authstack and receives an `id` (TypeID, e.g. `app_01j4hz...`) and a `client_secret`. Backend services (BFFs) authenticate all requests to Authstack using HTTP Basic auth with those credentials. Authstack never talks directly to a browser or mobile client — all calls come through the app's backend.
 
 ```
-Mobile / Web  →  App Backend (BFF)  →  Aegis
+Mobile / Web  →  App Backend (BFF)  →  Authstack
                  holds client_secret     issues JWTs
 ```
 
-On signup, Aegis automatically creates a **personal organization** for the user within that app. Team organizations can be created on top of this. The issued JWT always carries `org_id`, `org_type`, and `role` so the consuming app has full access context without a second round-trip.
+On signup, Authstack automatically creates a **personal organization** for the user within that app. Team organizations can be created on top of this. The issued JWT always carries `org_id`, `org_type`, and `role` so the consuming app has full access context without a second round-trip.
 
 ## Prerequisites
 
@@ -45,7 +45,7 @@ The API is available at **http://localhost:8080** once `make up` completes.
 
 ## Key generation
 
-Aegis uses ES256 (ECDSA P-256) for JWTs. Run:
+Authstack uses ES256 (ECDSA P-256) for JWTs. Run:
 
 ```bash
 make keys
@@ -58,7 +58,7 @@ JWT_PRIVATE_KEY=LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t...
 JWT_PUBLIC_KEY=LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0...
 ```
 
-The values are base64-encoded PEM files (single line, no spaces) — safe to paste directly into `.env` files, Docker env vars, or Dokploy. Aegis decodes them at startup.
+The values are base64-encoded PEM files (single line, no spaces) — safe to paste directly into `.env` files, Docker env vars, or Dokploy. Authstack decodes them at startup.
 
 Keep `JWT_PRIVATE_KEY` secret. `JWT_PUBLIC_KEY` can be shared — consuming services use it to verify tokens locally or via `GET /.well-known/jwks.json`.
 
@@ -103,17 +103,17 @@ make test
 | `DATABASE_URL` | Yes | Postgres connection string |
 | `JWT_PRIVATE_KEY` | Yes | ES256 PEM private key (newlines as `\n`) |
 | `JWT_PUBLIC_KEY` | Yes | ES256 PEM public key (newlines as `\n`) |
-| `AEGIS_ADMIN_KEY` | Yes | Bootstrap key for creating the first admin account (`X-Admin-Key` header) |
+| `AUTHSTACK_ADMIN_KEY` | Yes | Bootstrap key for creating the first admin account (`X-Admin-Key` header) |
 | `ACCESS_TOKEN_EXPIRY_SECS` | No | Access token lifetime in seconds (default: `900`) |
 | `REFRESH_TOKEN_EXPIRY_SECS` | No | Refresh token lifetime in seconds (default: `2592000`) |
 | `PORT` | No | HTTP port (default: `8080`) |
-| `RUST_LOG` | No | Log filter, e.g. `aegis=debug` |
+| `RUST_LOG` | No | Log filter, e.g. `authstack=debug` |
 
 ## API reference
 
 ### Admin
 
-Aegis ships with a browser-based admin panel at `/admin/login`. Log in with your admin credentials to manage applications.
+Authstack ships with a browser-based admin panel at `/admin/login`. Log in with your admin credentials to manage applications.
 
 #### Bootstrap
 
@@ -122,7 +122,7 @@ The first admin account is created once using the `X-Admin-Key` header:
 ```bash
 curl -X POST http://localhost:8080/admin/users \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Key: <AEGIS_ADMIN_KEY>" \
+  -H "X-Admin-Key: <AUTHSTACK_ADMIN_KEY>" \
   -d '{"email": "admin@example.com", "password": "your-password"}'
 ```
 
@@ -259,13 +259,13 @@ All entity IDs are TypeIDs — a prefixed, sortable identifier format. Prefixes:
 |--------|------|-------------|
 | `GET` | `/.well-known/jwks.json` | Public key set for JWT verification |
 
-Consuming services can fetch this endpoint to verify Aegis-issued JWTs locally without making a round-trip for every request.
+Consuming services can fetch this endpoint to verify Authstack-issued JWTs locally without making a round-trip for every request.
 
 ## Security model
 
 - **App isolation:** Users, organizations, and credentials are scoped to an `app_id`. A `client_secret` is required to access any app's data — one app cannot read another app's users even if it knows the other app's TypeID.
 - **Passwords:** Hashed with Argon2 (memory-hard, resistant to brute-force).
-- **JWTs:** Signed with ES256 (asymmetric). Only Aegis holds the private key; consuming services verify with the public key.
+- **JWTs:** Signed with ES256 (asymmetric). Only Authstack holds the private key; consuming services verify with the public key.
 - **Refresh token rotation:** Each use of a refresh token invalidates it and issues a new one. Re-use of a rotated token returns `401`.
 - **Admin panel:** Protected by signed JWTs stored in `HttpOnly; SameSite=Strict` cookies. The `X-Admin-Key` is only used once to bootstrap the first admin account — set it to a long random string and keep it secret.
 
@@ -275,7 +275,7 @@ Requires Rust stable and a running PostgreSQL instance.
 
 ```bash
 cp .env.example .env
-# Fill in DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, AEGIS_ADMIN_KEY
+# Fill in DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, AUTHSTACK_ADMIN_KEY
 
 cargo run       # runs migrations automatically, starts on :8080
 cargo check     # fast type-check without full build

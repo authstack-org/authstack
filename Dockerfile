@@ -19,8 +19,8 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y ca-certificates libssl3 curl && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/aegis /app/aegis
+COPY --from=builder /app/target/release/authstack /app/authstack
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/aegis"]
+ENTRYPOINT ["/app/authstack"]

@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Run Aegis locally with Docker and create the key material it needs.
+description: Run Authstack locally with Docker and create the key material it needs.
 ---
 
 ## Prerequisites
@@ -29,7 +29,7 @@ The API is available at `http://localhost:8080` once `make up` completes.
 
 ## Key generation
 
-Aegis uses ES256, ECDSA P-256, for JWTs.
+Authstack uses ES256, ECDSA P-256, for JWTs.
 
 ```bash
 make keys
@@ -42,7 +42,7 @@ JWT_PRIVATE_KEY=LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t...
 JWT_PUBLIC_KEY=LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0...
 ```
 
-The values are base64-encoded PEM files on a single line. They can be pasted directly into `.env` files, Docker environment variables, or Dokploy. Aegis decodes them at startup.
+The values are base64-encoded PEM files on a single line. They can be pasted directly into `.env` files, Docker environment variables, or Dokploy. Authstack decodes them at startup.
 
 Keep `JWT_PRIVATE_KEY` secret. `JWT_PUBLIC_KEY` can be shared with services that verify tokens locally or via `GET /.well-known/jwks.json`.
 
@@ -80,11 +80,11 @@ Requires Rust stable and a running PostgreSQL instance.
 
 ```bash
 cp .env.example .env
-# Fill in DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, and AEGIS_ADMIN_KEY
+# Fill in DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, and AUTHSTACK_ADMIN_KEY
 
 cargo run
 cargo check
 cargo build
 ```
 
-Aegis runs migrations automatically on startup and listens on port `8080` by default.
+Authstack runs migrations automatically on startup and listens on port `8080` by default.
