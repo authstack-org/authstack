@@ -13,6 +13,7 @@ mod ids;
 mod jwk;
 mod middleware;
 mod models;
+mod openapi;
 mod routes;
 mod services;
 
@@ -30,6 +31,11 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().any(|arg| arg == "openapi" || arg == "--openapi") {
+        println!("{}", serde_json::to_string_pretty(&openapi::spec())?);
+        return Ok(());
+    }
+
     dotenv().ok();
 
     tracing_subscriber::registry()
