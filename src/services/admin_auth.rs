@@ -1,7 +1,7 @@
 use anyhow::Result;
 use sqlx::PgPool;
 
-use crate::ids::{AdminUserId, ApplicationId};
+use crate::ids::{AdminUserId, ApplicationId, DirectoryId};
 use crate::models::admin_role::AdminRole;
 use crate::models::admin_user::AdminUser;
 use crate::services::{admin_ops, password};
@@ -45,15 +45,12 @@ pub struct AdminSession {
     pub email: String,
     pub role: AdminRole,
     pub granted_app_ids: Vec<ApplicationId>,
+    pub granted_directory_ids: Vec<DirectoryId>,
 }
 
 impl AdminSession {
     pub fn is_instance_admin(&self) -> bool {
         self.role == AdminRole::InstanceAdmin
-    }
-
-    pub fn can_access_app(&self, app_id: ApplicationId) -> bool {
-        self.is_instance_admin() || self.granted_app_ids.contains(&app_id)
     }
 }
 
@@ -77,10 +74,17 @@ pub async fn load_session(db: &PgPool, admin_id: AdminUserId, email: String) -> 
         Vec::new()
     };
 
+    let granted_directory_ids = if role == AdminRole::DirectoryAdmin {
+        admin_ops::load_granted_directory_ids(db, admin_id).await?
+    } else {
+        Vec::new()
+    };
+
     Ok(AdminSession {
         admin_id,
         email,
         role,
         granted_app_ids,
+        granted_directory_ids,
     })
 }

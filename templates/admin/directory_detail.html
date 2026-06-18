@@ -1,0 +1,102 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}{{ directory_name }} — Authstack Admin{% endblock %}
+{% block nav_directories_link %}
+<a href="/admin/directories" class="flex items-center rounded-md bg-accent px-3 py-2 font-medium text-accent-foreground">Directories</a>
+{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
+
+{% block nav_operators_link %}
+{% if can_manage_operators %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endif %}
+{% endblock %}
+
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
+</form>
+{% endblock %}
+
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/directories" class="hover:text-foreground">Directories</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">{{ directory_name }}</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ directory_name }}</h1>
+        <p class="text-sm text-muted-foreground">Directory identity boundary and administrators.</p>
+    </div>
+    {% if can_manage_operators %}
+    <a href="/admin/directories/{{ directory_id }}/admins/new"
+       class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+        Add directory admin
+    </a>
+    {% endif %}
+</div>
+
+{% if let Some(error) = error %}
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
+{% endif %}
+
+<div class="mb-6 rounded-lg border bg-card p-6 shadow-sm">
+    <dl class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Slug</dt>
+            <dd class="mt-1"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ directory_slug }}</code></dd>
+        </div>
+        <div>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Policy</dt>
+            <dd class="mt-1 text-sm">{{ policy_label }}</dd>
+        </div>
+        <div>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Applications</dt>
+            <dd class="mt-1 text-sm font-medium">{{ application_count }}</dd>
+        </div>
+        <div>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Created</dt>
+            <dd class="mt-1 text-sm">{{ created_at }}</dd>
+        </div>
+    </dl>
+</div>
+
+<div class="overflow-hidden rounded-lg border bg-card shadow-sm">
+    <div class="border-b px-4 py-3">
+        <h2 class="text-sm font-semibold">Directory administrators</h2>
+        <p class="text-xs text-muted-foreground">Operators who can manage all applications in this directory.</p>
+    </div>
+    {% if admins.is_empty() %}
+    <div class="p-8 text-center text-sm text-muted-foreground">
+        No directory admins yet.
+        {% if can_manage_operators %}
+        <a href="/admin/directories/{{ directory_id }}/admins/new" class="font-medium text-foreground underline-offset-4 hover:underline">Add one</a>.
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b bg-muted/50">
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Email</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for admin in admins %}
+                <tr class="border-b">
+                    <td class="p-4 align-middle font-medium">{{ admin.email }}</td>
+                    <td class="p-4 align-middle text-muted-foreground">{{ admin.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -5,11 +5,27 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 
-use crate::{AppState, error::AppError, ids::ApplicationId, services::password};
+use crate::{
+    AppState,
+    error::AppError,
+    ids::ApplicationId,
+    services::{identity::AppContext, password},
+};
 
 #[derive(Clone, Debug)]
 pub struct AppIdentity {
     pub app_id: ApplicationId,
+    pub ctx: AppContext,
+}
+
+impl AppIdentity {
+    pub fn directory_id(&self) -> crate::ids::DirectoryId {
+        self.ctx.directory_id
+    }
+
+    pub fn identity_policy(&self) -> crate::models::identity_policy::IdentityPolicy {
+        self.ctx.identity_policy
+    }
 }
 
 pub async fn authenticate_app(
@@ -59,6 +75,10 @@ pub async fn authenticate_app(
         ));
     }
 
-    req.extensions_mut().insert(AppIdentity { app_id });
+    let ctx = crate::services::identity::load_app_context(&state.db, app_id)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("invalid client credentials".to_string()))?;
+
+    req.extensions_mut().insert(AppIdentity { app_id, ctx });
     Ok(next.run(req).await)
 }

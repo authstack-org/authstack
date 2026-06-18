@@ -2,7 +2,9 @@
 
 Headless, multi-tenant authentication service. Built with Rust, Axum, and PostgreSQL.
 
-Acts as the auth backend for multiple applications — similar in spirit to Clerk or Kinde, but self-hosted. Each application is an isolated tenant: users, organizations, and credentials are fully scoped per app.
+Acts as the auth backend for multiple applications — similar in spirit to Clerk or Kinde, but self-hosted. Identity is grouped under **directories** with either **application silo** (isolated users per app, default) or **shared directory** (one identity, app access via grants) policy.
+
+PostgreSQL uses two schemas: **`admin`** for instance operators and **`tenant`** for directories, applications, users, organizations, and grants.
 
 ## Documentation
 
@@ -17,7 +19,7 @@ Mobile / Web  →  App Backend (BFF)  →  Authstack
                  holds client_secret     issues JWTs
 ```
 
-On signup, Authstack automatically creates a **personal organization** for the user within that app. Team organizations can be created on top of this. The issued JWT always carries `org_id`, `org_type`, and `role` so the consuming app has full access context without a second round-trip.
+On signup, Authstack automatically creates a **personal organization** for the user and a **user app grant** for the signing-in application. Team organizations can be created on top of this. The issued JWT carries `app_id`, `directory_id`, `org_id`, `org_type`, and `role` so the consuming app has full access context without a second round-trip.
 
 ## Prerequisites
 

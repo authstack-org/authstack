@@ -1,0 +1,71 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}Directories — Authstack Admin{% endblock %}
+{% block nav_directories_link %}
+<a href="/admin/directories" class="flex items-center rounded-md bg-accent px-3 py-2 font-medium text-accent-foreground transition-colors hover:bg-accent hover:text-accent-foreground">Directories</a>
+{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
+
+{% block nav_operators_link %}
+{% if can_manage_operators %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endif %}
+{% endblock %}
+
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Directories</h1>
+        <p class="text-sm text-muted-foreground">Identity boundaries for applications, users, and organizations.</p>
+    </div>
+    {% if can_manage_directories %}
+    <a href="/admin/directories/new" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">New directory</a>
+    {% endif %}
+</div>
+
+{% if let Some(flash) = flash %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ flash }}</div>
+{% endif %}
+
+{% if let Some(error) = error %}
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
+{% endif %}
+
+<div class="overflow-hidden rounded-lg border bg-card shadow-sm">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b bg-muted/50">
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Name</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Slug</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Policy</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Applications</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Admins</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for dir in directories %}
+                <tr class="cursor-pointer border-b transition-colors hover:bg-muted/50"
+                    onclick="window.location='/admin/directories/{{ dir.directory_id }}'"
+                    data-directory-id="{{ dir.directory_id }}">
+                    <td class="p-4 align-middle font-medium">{{ dir.name }}</td>
+                    <td class="p-4 align-middle"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ dir.slug }}</code></td>
+                    <td class="p-4 align-middle">{{ dir.policy_label }}</td>
+                    <td class="p-4 align-middle">{{ dir.application_count }}</td>
+                    <td class="p-4 align-middle">{{ dir.admin_count }}</td>
+                    <td class="p-4 align-middle text-muted-foreground">{{ dir.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

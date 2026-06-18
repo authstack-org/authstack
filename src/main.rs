@@ -1,7 +1,6 @@
 use anyhow::Context;
 use axum::Router;
 use dotenvy::dotenv;
-use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use axum::routing::get_service;
 use tower_http::cors::CorsLayer;
@@ -12,6 +11,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod cli;
 mod commands;
 mod config;
+mod db;
 mod error;
 mod ids;
 mod jwk;
@@ -59,12 +59,10 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Arc::new(Config::from_env()?);
 
-    let db = PgPoolOptions::new()
-        .max_connections(20)
-        .connect(&config.database_url)
-        .await?;
+    let migrator = db::connect_migrator(&config.database_url).await?;
+    sqlx::migrate!("./migrations").run(&migrator).await?;
 
-    sqlx::migrate!("./migrations").run(&db).await?;
+    let db = db::connect(&config.database_url, 20).await?;
 
     let jwt = JwtService::new(
         &config.jwt_private_key,

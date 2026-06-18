@@ -10,7 +10,7 @@ use crate::{
     AppState,
     ids::ApplicationId,
     services::admin_auth::AdminSession,
-    services::{admin_ops, datastar},
+    services::{admin_access, admin_ops, datastar},
 };
 
 pub fn router() -> Router<AppState> {
@@ -67,7 +67,10 @@ async fn picker_users_sse(
         Err(_) => return datastar::sse_response(String::new()),
     };
 
-    if !identity.can_access_app(app_id) {
+    if !admin_access::can_access_app(&state.db, &identity, app_id)
+        .await
+        .unwrap_or(false)
+    {
         return datastar::sse_response(String::new());
     }
 
@@ -107,7 +110,10 @@ async fn search_users_sse(
         Err(_) => return datastar::sse_response(String::new()),
     };
 
-    if !identity.can_access_app(app_id) {
+    if !admin_access::can_access_app(&state.db, &identity, app_id)
+        .await
+        .unwrap_or(false)
+    {
         return datastar::sse_response(String::new());
     }
 

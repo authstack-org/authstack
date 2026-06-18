@@ -5,8 +5,14 @@
 {% block nav_email %}{{ admin_email }}{% endblock %}
 {% block header_email %}{{ admin_email }}{% endblock %}
 
+{% block nav_directories_link %}
+{% if show_directories_nav %}
+<a href="/admin/directories" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Directories</a>
+{% endif %}
+{% endblock %}
+
 {% block nav_operators_link %}
-{% if is_instance_admin %}
+{% if can_manage_operators %}
 <a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
 {% endif %}
 {% endblock %}
@@ -58,7 +64,7 @@
     </dl>
 </div>
 
-{% if is_instance_admin %}
+{% if can_delete_applications %}
 <div class="mt-6 rounded-lg border border-red-200 bg-card p-6 shadow-sm" data-signals='{"confirm_delete":false}'>
     <h2 class="text-lg font-semibold text-red-700">Danger zone</h2>
     <p class="mt-1 text-sm text-muted-foreground">Deleting an application removes all users, organizations, and credentials.</p>

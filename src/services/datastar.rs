@@ -15,10 +15,6 @@ pub fn sse_patch_elements(selector: &str, mode: &str, elements: &str) -> String 
     body
 }
 
-pub fn sse_patch_signals(signals: &str) -> String {
-    format!("event: datastar-patch-signals\ndata: signals {signals}\n\n")
-}
-
 pub fn sse_response(body: String) -> Response {
     (
         [

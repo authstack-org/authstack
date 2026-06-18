@@ -1,0 +1,64 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}New Directory — Authstack Admin{% endblock %}
+{% block nav_directories_link %}
+<a href="/admin/directories" class="flex items-center rounded-md bg-accent px-3 py-2 font-medium text-accent-foreground">Directories</a>
+{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
+
+{% block nav_operators_link %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endblock %}
+
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
+</form>
+{% endblock %}
+
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/directories" class="hover:text-foreground">Directories</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">New</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<h1 class="mb-6 text-2xl font-semibold tracking-tight">New directory</h1>
+
+{% if let Some(error) = error %}
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
+{% endif %}
+
+<div class="max-w-lg rounded-lg border bg-card p-6 shadow-sm">
+    <form method="POST" action="/admin/directories/new" class="space-y-4">
+        <div class="space-y-2">
+            <label for="name" class="text-sm font-medium">Display name</label>
+            <input type="text" id="name" name="name" required autofocus
+                   value="{% if let Some(n) = name %}{{ n }}{% endif %}"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        </div>
+        <div class="space-y-2">
+            <label for="slug" class="text-sm font-medium">Slug</label>
+            <input type="text" id="slug" name="slug" required pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+                   value="{% if let Some(s) = slug %}{{ s }}{% endif %}"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <p class="text-xs text-muted-foreground">Lowercase letters, numbers, and hyphens. Cannot be <code>default</code>.</p>
+        </div>
+        <div class="space-y-2">
+            <label for="identity_policy" class="text-sm font-medium">Identity policy</label>
+            <select id="identity_policy" name="identity_policy"
+                    class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <option value="application_silo" {% if let Some(p) = identity_policy %}{% if p == "application_silo" %}selected{% endif %}{% else %}selected{% endif %}>Application silo — isolated users per app</option>
+                <option value="shared_directory" {% if let Some(p) = identity_policy %}{% if p == "shared_directory" %}selected{% endif %}{% endif %}>Shared directory — one identity, grants per app</option>
+            </select>
+        </div>
+        <div class="flex gap-2 pt-2">
+            <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Create directory</button>
+            <a href="/admin/directories" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

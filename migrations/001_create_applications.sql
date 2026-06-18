@@ -1,7 +1,0 @@
-CREATE TABLE application (
-    id TEXT PRIMARY KEY,
-    client_secret_hash TEXT NOT NULL,
-    name TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);

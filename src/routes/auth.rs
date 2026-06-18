@@ -8,9 +8,8 @@ use crate::{
     error::{AppError, Result},
     ids::{OrganizationId, RefreshSessionId, UserId},
     middleware::app_auth::AppIdentity,
-    models::organization::OrgType,
     routes::me,
-    services::auth as auth_service,
+    services::{auth as auth_service, identity},
 };
 
 #[derive(Debug, Deserialize, Validate)]
@@ -71,7 +70,7 @@ async fn signup(
 
     let user = auth_service::signup(
         &state.db,
-        app.app_id,
+        &app.ctx,
         &body.name,
         &body.email,
         &body.password,
@@ -91,31 +90,55 @@ async fn login(
     body.validate()
         .map_err(|e| AppError::Validation(e.to_string()))?;
 
-    let result = auth_service::login(&state.db, app.app_id, &body.email, &body.password).await?;
+    let result = auth_service::login(&state.db, &app.ctx, &body.email, &body.password).await?;
 
-    let jwt = &state.jwt;
+    issue_tokens(
+        &state,
+        &app.ctx,
+        result.user.id,
+        result.org_id,
+        result.org_type,
+        &result.role,
+        &result.user.email,
+    )
+    .await
+}
 
-    let org_type_str = format!("{:?}", result.org_type).to_lowercase();
-    let access_token = jwt
+async fn issue_tokens(
+    state: &AppState,
+    ctx: &identity::AppContext,
+    user_id: UserId,
+    org_id: OrganizationId,
+    org_type: crate::models::organization::OrgType,
+    role: &str,
+    email: &str,
+) -> Result<Json<TokenResponse>> {
+    let org_type_str = format!("{org_type:?}").to_lowercase();
+    let access_token = state
+        .jwt
         .issue_access_token(
-            result.user.id,
-            app.app_id,
-            result.org_id,
+            user_id,
+            ctx.directory_id,
+            ctx.application_id,
+            org_id,
             &org_type_str,
-            &result.role,
-            &result.user.email,
+            role,
+            email,
         )
         .map_err(AppError::Internal)?;
 
-    let (refresh_token, jti) = jwt
-        .issue_refresh_token(result.user.id, app.app_id)
-        .map_err(|e| AppError::Internal(e))?;
+    let (refresh_token, jti) = state
+        .jwt
+        .issue_refresh_token(user_id, ctx.application_id)
+        .map_err(AppError::Internal)?;
 
     sqlx::query(
-        "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
+        r#"INSERT INTO refresh_session (id, user_id, application_id, jti, expires_at)
+           VALUES ($1, $2, $3, $4, NOW() + ($5 * interval '1 second'))"#,
     )
     .bind(RefreshSessionId::new())
-    .bind(result.user.id)
+    .bind(user_id)
+    .bind(ctx.application_id)
     .bind(&jti)
     .bind(state.config.refresh_token_expiry_secs as f64)
     .execute(&state.db)
@@ -133,22 +156,22 @@ async fn refresh(
     Extension(app): Extension<AppIdentity>,
     Json(body): Json<RefreshRequest>,
 ) -> Result<Json<TokenResponse>> {
-    let jwt = &state.jwt;
-
-    let token_data = jwt
+    let claims = state
+        .jwt
         .verify_refresh_token(&body.refresh_token)
-        .map_err(|_| AppError::Unauthorized("invalid or expired refresh token".to_string()))?;
-
-    let claims = token_data.claims;
+        .map_err(|_| AppError::Unauthorized("invalid or expired refresh token".to_string()))?
+        .claims;
 
     if claims.app_id != app.app_id.to_string() {
         return Err(AppError::Unauthorized("token app mismatch".to_string()));
     }
 
     let session_id: Option<RefreshSessionId> = sqlx::query_scalar(
-        "SELECT id FROM refresh_session WHERE jti = $1 AND revoked_at IS NULL AND expires_at > NOW()",
+        r#"SELECT id FROM refresh_session
+           WHERE jti = $1 AND application_id = $2 AND revoked_at IS NULL AND expires_at > NOW()"#,
     )
     .bind(&claims.jti)
+    .bind(app.app_id)
     .fetch_optional(&state.db)
     .await?;
 
@@ -165,63 +188,26 @@ async fn refresh(
         .parse()
         .map_err(|_| AppError::Unauthorized("invalid token".to_string()))?;
 
-    let row: (UserId, String) = sqlx::query_as(
-        r#"SELECT u.id, u.email
-           FROM "user" u
-           WHERE u.id = $1 AND u.app_id = $2"#,
-    )
-    .bind(user_id)
-    .bind(app.app_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| AppError::Unauthorized("user not found".to_string()))?;
+    if !identity::user_has_app_access(&state.db, user_id, app.app_id).await? {
+        return Err(AppError::Unauthorized("user not found".to_string()));
+    }
 
-    let (uid, email) = row;
+    let email: String = sqlx::query_scalar(r#"SELECT email FROM "user" WHERE id = $1"#)
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| AppError::Unauthorized("user not found".to_string()))?;
 
     let (org_id, org_type, role) = match body.org_id {
         Some(org_id) => {
-            let (org_type, role) = me::membership_for_org(&state, app.app_id, uid, org_id).await?;
+            let (org_type, role) =
+                me::membership_for_org(&state, app.app_id, user_id, org_id).await?;
             (org_id, org_type, role)
         }
-        None => {
-            let row: (OrganizationId, OrgType, String) = sqlx::query_as(
-                r#"SELECT m.organization_id, o.org_type, m.role
-                   FROM member m
-                   JOIN organization o ON o.id = m.organization_id
-                   WHERE m.user_id = $1 AND o.app_id = $2 AND o.org_type = 'personal'"#,
-            )
-            .bind(uid)
-            .bind(app.app_id)
-            .fetch_one(&state.db)
-            .await?;
-            row
-        }
+        None => identity::find_personal_membership(&state.db, &app.ctx, user_id).await?,
     };
 
-    let org_type_str = format!("{:?}", org_type).to_lowercase();
-    let access_token = jwt
-        .issue_access_token(uid, app.app_id, org_id, &org_type_str, &role, &email)
-        .map_err(AppError::Internal)?;
-
-    let (new_refresh_token, new_jti) = jwt
-        .issue_refresh_token(uid, app.app_id)
-        .map_err(AppError::Internal)?;
-
-    sqlx::query(
-        "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
-    )
-    .bind(RefreshSessionId::new())
-    .bind(uid)
-    .bind(&new_jti)
-    .bind(state.config.refresh_token_expiry_secs as f64)
-    .execute(&state.db)
-    .await?;
-
-    Ok(Json(TokenResponse {
-        access_token,
-        refresh_token: new_refresh_token,
-        token_type: "Bearer".to_string(),
-    }))
+    issue_tokens(&state, &app.ctx, user_id, org_id, org_type, &role, &email).await
 }
 
 async fn switch_org(
@@ -233,46 +219,22 @@ async fn switch_org(
     let (org_type, role) =
         me::membership_for_org(&state, user.app_id, user.user_id, body.org_id).await?;
 
-    let email: String =
-        sqlx::query_scalar(r#"SELECT email FROM "user" WHERE id = $1 AND app_id = $2"#)
-            .bind(user.user_id)
-            .bind(user.app_id)
-            .fetch_optional(&state.db)
-            .await?
-            .ok_or_else(|| AppError::Unauthorized("user not found".to_string()))?;
+    let email: String = sqlx::query_scalar(r#"SELECT email FROM "user" WHERE id = $1"#)
+        .bind(user.user_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("user not found".to_string()))?;
 
-    let org_type_str = format!("{:?}", org_type).to_lowercase();
-    let access_token = state
-        .jwt
-        .issue_access_token(
-            user.user_id,
-            user.app_id,
-            body.org_id,
-            &org_type_str,
-            &role,
-            &email,
-        )
-        .map_err(AppError::Internal)?;
-    let (refresh_token, jti) = state
-        .jwt
-        .issue_refresh_token(user.user_id, user.app_id)
-        .map_err(AppError::Internal)?;
-
-    sqlx::query(
-        "INSERT INTO refresh_session (id, user_id, jti, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * interval '1 second'))",
+    issue_tokens(
+        &state,
+        &user.ctx,
+        user.user_id,
+        body.org_id,
+        org_type,
+        &role,
+        &email,
     )
-    .bind(RefreshSessionId::new())
-    .bind(user.user_id)
-    .bind(&jti)
-    .bind(state.config.refresh_token_expiry_secs as f64)
-    .execute(&state.db)
-    .await?;
-
-    Ok(Json(TokenResponse {
-        access_token,
-        refresh_token,
-        token_type: "Bearer".to_string(),
-    }))
+    .await
 }
 
 async fn logout(

@@ -13,10 +13,11 @@ use uuid::Uuid;
 use crate::{
     AppState,
     error::{AppError, Result},
-    ids::{ApplicationId, OrganizationId},
+    ids::{ApplicationId, DirectoryId, OrganizationId},
     services::admin_auth::AdminSession,
     models::admin_role::AdminRole,
-    services::{admin_ops, auth as auth_service, invites, password},
+    models::identity_policy::IdentityPolicy,
+    services::{admin_access, admin_ops, auth as auth_service, identity, invites, password},
 };
 
 // ── Template structs ──────────────────────────────────────────────────────────
@@ -33,6 +34,9 @@ struct LoginTemplate {
 struct DashboardTemplate {
     admin_email: String,
     is_instance_admin: bool,
+    can_manage_operators: bool,
+    can_create_applications: bool,
+    show_directories_nav: bool,
     applications: Vec<ApplicationRow>,
     new_app: Option<NewAppCredentials>,
     flash: Option<String>,
@@ -44,8 +48,65 @@ struct DashboardTemplate {
 struct NewAppTemplate {
     admin_email: String,
     is_instance_admin: bool,
+    can_manage_operators: bool,
+    show_directories_nav: bool,
+    directories: Vec<DirectorySelectRow>,
     error: Option<String>,
     name: Option<String>,
+    directory_id: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/directories.html")]
+struct DirectoriesTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    can_manage_directories: bool,
+    can_manage_operators: bool,
+    directories: Vec<DirectoryRow>,
+    flash: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/directory_detail.html")]
+struct DirectoryDetailTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    can_manage_operators: bool,
+    can_manage_directories: bool,
+    directory_id: String,
+    directory_name: String,
+    directory_slug: String,
+    policy_label: String,
+    application_count: i64,
+    created_at: DateTime<Utc>,
+    admins: Vec<DirectoryAdminDisplay>,
+    flash: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/new_directory_admin.html")]
+struct NewDirectoryAdminTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    can_manage_operators: bool,
+    directory_id: String,
+    directory_name: String,
+    error: Option<String>,
+    email: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/new_directory.html")]
+struct NewDirectoryTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    error: Option<String>,
+    name: Option<String>,
+    slug: Option<String>,
+    identity_policy: Option<String>,
 }
 
 #[derive(Template)]
@@ -53,6 +114,9 @@ struct NewAppTemplate {
 struct AppDetailTemplate {
     admin_email: String,
     is_instance_admin: bool,
+    can_delete_applications: bool,
+    can_manage_operators: bool,
+    show_directories_nav: bool,
     app_id: String,
     app_name: String,
     created_at: DateTime<Utc>,
@@ -188,6 +252,8 @@ struct OrgSelectRow {
 struct OperatorsTemplate {
     admin_email: String,
     is_instance_admin: bool,
+    can_manage_operators: bool,
+    show_directories_nav: bool,
     operators: Vec<OperatorRow>,
     flash: Option<String>,
 }
@@ -197,7 +263,11 @@ struct OperatorsTemplate {
 struct NewOperatorTemplate {
     admin_email: String,
     is_instance_admin: bool,
+    can_manage_operators: bool,
+    show_directories_nav: bool,
+    show_instance_admin_role: bool,
     applications: Vec<AppPickerRow>,
+    directories: Vec<DirectorySelectRow>,
     error: Option<String>,
     email: Option<String>,
     role: Option<String>,
@@ -227,7 +297,7 @@ struct OperatorRow {
     id: String,
     email: String,
     role_label: String,
-    apps_label: String,
+    scope_label: String,
     created_at: DateTime<Utc>,
 }
 
@@ -235,6 +305,27 @@ struct AppPickerRow {
     app_id: String,
     name: String,
     selected: bool,
+}
+
+struct DirectorySelectRow {
+    directory_id: String,
+    label: String,
+    selected: bool,
+}
+
+struct DirectoryRow {
+    directory_id: String,
+    name: String,
+    slug: String,
+    policy_label: String,
+    application_count: i64,
+    admin_count: i64,
+    created_at: DateTime<Utc>,
+}
+
+struct DirectoryAdminDisplay {
+    email: String,
+    created_at: DateTime<Utc>,
 }
 
 // ── Routers ───────────────────────────────────────────────────────────────────
@@ -250,6 +341,16 @@ pub fn protected_router() -> Router<AppState> {
         .route("/admin/dashboard", get(dashboard))
         .route("/admin/operators", get(operators_page))
         .route("/admin/operators/new", get(new_operator_page).post(create_operator))
+        .route("/admin/directories", get(directories_page))
+        .route(
+            "/admin/directories/new",
+            get(new_directory_page).post(create_directory),
+        )
+        .route("/admin/directories/{directory_id}", get(directory_detail))
+        .route(
+            "/admin/directories/{directory_id}/admins/new",
+            get(new_directory_admin_page).post(create_directory_admin),
+        )
         .route("/admin/apps/new", get(new_app_page))
         .route("/admin/apps", post(create_app))
         .route("/admin/apps/{app_id}", get(app_detail))
@@ -351,8 +452,7 @@ async fn dashboard(
     State(state): State<AppState>,
     Extension(identity): Extension<AdminSession>,
 ) -> Response {
-    let apps = match admin_ops::list_applications_for_admin(&state.db, identity.role, identity.admin_id)
-        .await
+    let apps = match admin_ops::list_applications_for_admin(&state.db, &identity).await
     {
         Ok(a) => a,
         Err(_) => return AppError::Internal(anyhow::anyhow!("db error")).into_response(),
@@ -368,11 +468,14 @@ async fn dashboard(
         })
         .collect();
 
-    let (admin_email, is_instance_admin) = nav_context(&identity);
+    let nav = nav_context(&identity);
 
     render(DashboardTemplate {
-        admin_email,
-        is_instance_admin,
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        can_create_applications: nav.can_create_applications,
+        show_directories_nav: nav.show_directories_nav,
         applications,
         new_app: None,
         flash: None,
@@ -381,16 +484,29 @@ async fn dashboard(
     .into_response()
 }
 
-async fn new_app_page(Extension(identity): Extension<AdminSession>) -> Response {
-    if !identity.is_instance_admin() {
+async fn new_app_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+) -> Response {
+    if !admin_access::can_create_applications(&identity) {
         return Redirect::to("/admin/dashboard").into_response();
     }
 
+    let directories = match directory_select_rows(&state.db, &identity, None).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let nav = nav_context(&identity);
     render(NewAppTemplate {
-        admin_email: identity.email.clone(),
-        is_instance_admin: true,
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        show_directories_nav: nav.show_directories_nav,
+        directories,
         error: None,
         name: None,
+        directory_id: None,
     })
     .into_response()
 }
@@ -398,6 +514,7 @@ async fn new_app_page(Extension(identity): Extension<AdminSession>) -> Response 
 #[derive(Deserialize)]
 struct CreateAppForm {
     name: String,
+    directory_id: Option<String>,
 }
 
 async fn create_app(
@@ -405,22 +522,44 @@ async fn create_app(
     Extension(identity): Extension<AdminSession>,
     Form(body): Form<CreateAppForm>,
 ) -> Response {
-    if !identity.is_instance_admin() {
+    if !admin_access::can_create_applications(&identity) {
         return Redirect::to("/admin/dashboard").into_response();
     }
 
     let name = body.name.trim().to_string();
-    if name.is_empty() {
-        return render(NewAppTemplate {
-            admin_email: identity.email.clone(),
-            is_instance_admin: true,
-            error: Some("Application name is required.".to_string()),
-            name: Some(name),
-        })
-        .into_response();
+    let directory_id = match parse_directory_id_option(body.directory_id.as_deref()) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    if let Some(dir_id) = directory_id {
+        match admin_access::can_access_directory(&state.db, &identity, dir_id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return render_new_app_error(
+                    &state,
+                    &identity,
+                    "You do not have access to that directory.",
+                    Some(name),
+                    directory_id,
+                )
+                .await
+            }
+            Err(e) => return AppError::Internal(e).into_response(),
+        }
     }
 
-    let id = ApplicationId::new();
+    if name.is_empty() {
+        return render_new_app_error(
+            &state,
+            &identity,
+            "Application name is required.",
+            Some(name),
+            directory_id,
+        )
+        .await;
+    }
+
     let client_secret = format!(
         "secret_{}",
         &Uuid::new_v4().to_string().replace('-', "")[..32]
@@ -430,18 +569,22 @@ async fn create_app(
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    if let Err(e) = sqlx::query("INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)")
-        .bind(id)
-        .bind(&secret_hash)
-        .bind(&name)
-        .execute(&state.db)
-        .await
+    let id = match admin_ops::create_application(
+        &state.db,
+        &name,
+        &secret_hash,
+        directory_id,
+    )
+    .await
     {
-        return AppError::Database(e).into_response();
-    }
+        Ok(id) => id,
+        Err(e) => {
+            return render_new_app_error(&state, &identity, &e.to_string(), Some(name), directory_id)
+                .await
+        }
+    };
 
-    let apps = match admin_ops::list_applications_for_admin(&state.db, identity.role, identity.admin_id)
-        .await
+    let apps = match admin_ops::list_applications_for_admin(&state.db, &identity).await
     {
         Ok(a) => a,
         Err(e) => return AppError::Internal(e).into_response(),
@@ -457,11 +600,14 @@ async fn create_app(
         })
         .collect();
 
-    let (admin_email, is_instance_admin) = nav_context(&identity);
+    let nav = nav_context(&identity);
 
     render(DashboardTemplate {
-        admin_email,
-        is_instance_admin,
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        can_create_applications: nav.can_create_applications,
+        show_directories_nav: nav.show_directories_nav,
         applications,
         new_app: Some(NewAppCredentials {
             app_id: id.to_string(),
@@ -482,8 +628,8 @@ async fn app_detail(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -492,9 +638,13 @@ async fn app_detail(
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
+    let nav = nav_context(&identity);
     render(AppDetailTemplate {
-        admin_email: identity.email.clone(),
-        is_instance_admin: identity.is_instance_admin(),
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_delete_applications: nav.can_delete_applications,
+        can_manage_operators: nav.can_manage_operators,
+        show_directories_nav: nav.show_directories_nav,
         app_id: app.id.to_string(),
         app_name: app.name,
         created_at: app.created_at,
@@ -510,7 +660,7 @@ async fn delete_app(
     Extension(identity): Extension<AdminSession>,
     Path(app_id): Path<String>,
 ) -> Response {
-    if !identity.is_instance_admin() {
+    if !admin_access::can_delete_applications(&identity) {
         return Redirect::to("/admin/dashboard").into_response();
     }
 
@@ -518,6 +668,9 @@ async fn delete_app(
         Ok(id) => id,
         Err(resp) => return resp,
     };
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
+    }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
         Ok(Some(a)) => a,
@@ -527,17 +680,23 @@ async fn delete_app(
 
     match admin_ops::delete_application(&state.db, app_id).await {
         Ok(true) => Redirect::to("/admin/dashboard").into_response(),
-        Ok(false) => render(AppDetailTemplate {
-            admin_email: identity.email.clone(),
-            is_instance_admin: true,
-            app_id: app.id.to_string(),
-            app_name: app.name,
-            created_at: app.created_at,
-            user_count: app.user_count,
-            flash: None,
-            error: Some("Application could not be deleted.".to_string()),
-        })
-        .into_response(),
+        Ok(false) => {
+            let nav = nav_context(&identity);
+            render(AppDetailTemplate {
+                admin_email: nav.admin_email,
+                is_instance_admin: nav.is_instance_admin,
+                can_delete_applications: nav.can_delete_applications,
+                can_manage_operators: nav.can_manage_operators,
+                show_directories_nav: nav.show_directories_nav,
+                app_id: app.id.to_string(),
+                app_name: app.name,
+                created_at: app.created_at,
+                user_count: app.user_count,
+                flash: None,
+                error: Some("Application could not be deleted.".to_string()),
+            })
+            .into_response()
+        }
         Err(e) => AppError::Internal(e).into_response(),
     }
 }
@@ -551,8 +710,8 @@ async fn app_users(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -651,8 +810,8 @@ async fn invite_app_user_page(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -699,8 +858,8 @@ async fn create_app_user_invite(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -737,7 +896,7 @@ async fn create_app_user_invite(
     let invite = match invites::create_invite(
         &state.db,
         invites::CreateInviteInput {
-            app_id,
+            application_id: app_id,
             organization_id,
             email: &body.email,
             role: body.role.as_deref().unwrap_or("member"),
@@ -795,8 +954,8 @@ async fn new_app_user_page(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -834,8 +993,8 @@ async fn create_app_user(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -873,19 +1032,26 @@ async fn create_app_user(
         .into_response();
     }
 
-    match auth_service::signup(&state.db, app_id, &name, &email, &body.password).await {
-        Ok(_) => Redirect::to(&format!("/admin/apps/{}/users", app.id)).into_response(),
-        Err(AppError::Conflict(_)) => render(NewAppUserTemplate {
-            admin_email: identity.email.clone(),
-            is_instance_admin: identity.is_instance_admin(),
-            app_id: app.id.to_string(),
-            app_name: app.name,
-            error: Some("A user with that email already exists in this application.".to_string()),
-            name: Some(name),
-            email: Some(email),
-        })
-        .into_response(),
-        Err(e) => AppError::Internal(anyhow::anyhow!(e.to_string())).into_response(),
+    match identity::load_app_context(&state.db, app_id).await {
+        Ok(Some(ctx)) => {
+            match auth_service::signup(&state.db, &ctx, &name, &email, &body.password).await {
+                Ok(_) => Redirect::to(&format!("/admin/apps/{}/users", app.id)).into_response(),
+                Err(AppError::Conflict(_)) => render(NewAppUserTemplate {
+                    admin_email: identity.email.clone(),
+                    is_instance_admin: identity.is_instance_admin(),
+                    app_id: app.id.to_string(),
+                    app_name: app.name,
+                    error: Some(
+                        "A user with that email already exists in this application.".to_string(),
+                    ),
+                    name: Some(name),
+                    email: Some(email),
+                })
+                .into_response(),
+                Err(e) => AppError::Internal(anyhow::anyhow!(e.to_string())).into_response(),
+            }
+        }
+        Ok(None) | Err(_) => AppError::Internal(anyhow::anyhow!("application not found")).into_response(),
     }
 }
 
@@ -898,8 +1064,8 @@ async fn app_orgs(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -943,8 +1109,8 @@ async fn new_team_org_page(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -981,8 +1147,8 @@ async fn create_team_org(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -1028,8 +1194,8 @@ async fn org_detail(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -1136,8 +1302,8 @@ async fn create_org_invite(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -1169,7 +1335,7 @@ async fn create_org_invite(
     let invite = match invites::create_invite(
         &state.db,
         invites::CreateInviteInput {
-            app_id,
+            application_id: app_id,
             organization_id,
             email: &body.email,
             role: body.role.as_deref().unwrap_or("member"),
@@ -1223,8 +1389,8 @@ async fn add_org_member(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -1271,8 +1437,8 @@ async fn remove_org_member(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if !identity.can_access_app(app_id) {
-        return Redirect::to("/admin/dashboard").into_response();
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
     }
 
     let app = match admin_ops::get_application_summary(&state.db, app_id).await {
@@ -1319,40 +1485,319 @@ async fn render_org_detail_error(
     .await
 }
 
-async fn operators_page(
+async fn directories_page(
     State(state): State<AppState>,
     Extension(identity): Extension<AdminSession>,
 ) -> Response {
-    if !identity.is_instance_admin() {
+    if !admin_access::can_view_directories(&identity) {
         return Redirect::to("/admin/dashboard").into_response();
     }
 
-    let operators = match admin_ops::list_operators(&state.db).await {
+    let directories = match admin_ops::list_directories_for_session(&state.db, &identity).await {
         Ok(rows) => rows,
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    render(OperatorsTemplate {
+    let nav = nav_context(&identity);
+    render(DirectoriesTemplate {
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_directories: nav.can_manage_directories,
+        can_manage_operators: nav.can_manage_operators,
+        directories: directories
+            .into_iter()
+            .map(|d| DirectoryRow {
+                directory_id: d.id.to_string(),
+                name: d.name,
+                slug: d.slug,
+                policy_label: d.identity_policy.label().to_string(),
+                application_count: d.application_count,
+                admin_count: d.admin_count,
+                created_at: d.created_at,
+            })
+            .collect(),
+        flash: None,
+        error: None,
+    })
+    .into_response()
+}
+
+async fn directory_detail(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(directory_id): Path<String>,
+) -> Response {
+    let directory_id = match parse_directory_id(&directory_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    if !admin_access::can_view_directories(&identity) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    match admin_access::can_access_directory(&state.db, &identity, directory_id).await {
+        Ok(true) => {}
+        Ok(false) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    }
+
+    let directory = match admin_ops::get_directory(&state.db, directory_id).await {
+        Ok(Some(d)) => d,
+        Ok(None) => return Redirect::to("/admin/directories").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let admins = match admin_ops::list_directory_admins(&state.db, directory_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let nav = nav_context(&identity);
+    render(DirectoryDetailTemplate {
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        can_manage_directories: nav.can_manage_directories,
+        directory_id: directory.id.to_string(),
+        directory_name: directory.name,
+        directory_slug: directory.slug,
+        policy_label: directory.identity_policy.label().to_string(),
+        application_count: directory.application_count,
+        created_at: directory.created_at,
+        admins: admins
+            .into_iter()
+            .map(|a| DirectoryAdminDisplay {
+                email: a.email,
+                created_at: a.created_at,
+            })
+            .collect(),
+        flash: None,
+        error: None,
+    })
+    .into_response()
+}
+
+async fn new_directory_admin_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(directory_id): Path<String>,
+) -> Response {
+    let directory_id = match parse_directory_id(&directory_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    if !admin_access::can_manage_operators(&identity) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    match admin_access::can_access_directory(&state.db, &identity, directory_id).await {
+        Ok(true) => {}
+        Ok(false) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    }
+
+    let directory = match admin_ops::get_directory(&state.db, directory_id).await {
+        Ok(Some(d)) => d,
+        Ok(None) => return Redirect::to("/admin/directories").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let nav = nav_context(&identity);
+    render(NewDirectoryAdminTemplate {
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        directory_id: directory.id.to_string(),
+        directory_name: directory.name,
+        error: None,
+        email: None,
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateDirectoryAdminForm {
+    email: String,
+    password: String,
+}
+
+async fn create_directory_admin(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(directory_id): Path<String>,
+    Form(body): Form<CreateDirectoryAdminForm>,
+) -> Response {
+    let directory_id = match parse_directory_id(&directory_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    if !admin_access::can_manage_operators(&identity) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    match admin_access::can_access_directory(&state.db, &identity, directory_id).await {
+        Ok(true) => {}
+        Ok(false) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    }
+
+    let directory = match admin_ops::get_directory(&state.db, directory_id).await {
+        Ok(Some(d)) => d,
+        Ok(None) => return Redirect::to("/admin/directories").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    match admin_ops::create_operator(
+        &state.db,
+        &identity,
+        &body.email,
+        &body.password,
+        AdminRole::DirectoryAdmin,
+        &[],
+        &[directory_id],
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&format!(
+            "/admin/directories/{}",
+            directory.id
+        ))
+        .into_response(),
+        Err(e) if e.to_string().contains("unique") || e.to_string().contains("23505") => {
+            let nav = nav_context(&identity);
+            render(NewDirectoryAdminTemplate {
+                admin_email: nav.admin_email,
+                is_instance_admin: nav.is_instance_admin,
+                can_manage_operators: nav.can_manage_operators,
+                directory_id: directory.id.to_string(),
+                directory_name: directory.name,
+                error: Some("An operator with that email already exists.".to_string()),
+                email: Some(body.email),
+            })
+            .into_response()
+        }
+        Err(e) => {
+            let nav = nav_context(&identity);
+            render(NewDirectoryAdminTemplate {
+                admin_email: nav.admin_email,
+                is_instance_admin: nav.is_instance_admin,
+                can_manage_operators: nav.can_manage_operators,
+                directory_id: directory.id.to_string(),
+                directory_name: directory.name,
+                error: Some(e.to_string()),
+                email: Some(body.email),
+            })
+            .into_response()
+        }
+    }
+}
+
+async fn new_directory_page(Extension(identity): Extension<AdminSession>) -> Response {
+    if !admin_access::can_manage_directories(&identity) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    render(NewDirectoryTemplate {
         admin_email: identity.email.clone(),
         is_instance_admin: true,
+        error: None,
+        name: None,
+        slug: None,
+        identity_policy: Some("application_silo".to_string()),
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateDirectoryForm {
+    name: String,
+    slug: String,
+    identity_policy: String,
+}
+
+async fn create_directory(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Form(body): Form<CreateDirectoryForm>,
+) -> Response {
+    if !admin_access::can_manage_directories(&identity) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let name = body.name.trim().to_string();
+    let slug = body.slug.trim().to_string();
+    let policy_str = body.identity_policy.clone();
+    let identity_policy = match policy_str.parse::<IdentityPolicy>() {
+        Ok(policy) => policy,
+        Err(()) => {
+            return render(NewDirectoryTemplate {
+                admin_email: identity.email.clone(),
+                is_instance_admin: true,
+                error: Some("Invalid identity policy.".to_string()),
+                name: Some(name),
+                slug: Some(slug),
+                identity_policy: Some(policy_str),
+            })
+            .into_response()
+        }
+    };
+
+    match admin_ops::create_directory(&state.db, &name, &slug, identity_policy).await {
+        Ok(_) => Redirect::to("/admin/directories").into_response(),
+        Err(e) if e.to_string().contains("23505") => render(NewDirectoryTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: true,
+            error: Some("A directory with that slug already exists.".to_string()),
+            name: Some(name),
+            slug: Some(slug),
+            identity_policy: Some(policy_str),
+        })
+        .into_response(),
+        Err(e) => render(NewDirectoryTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: true,
+            error: Some(e.to_string()),
+            name: Some(name),
+            slug: Some(slug),
+            identity_policy: Some(policy_str),
+        })
+        .into_response(),
+    }
+}
+
+async fn operators_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+) -> Response {
+    if !admin_access::can_manage_operators(&identity) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let operators = match admin_ops::list_operators_for_session(&state.db, &identity).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let nav = nav_context(&identity);
+    render(OperatorsTemplate {
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        show_directories_nav: nav.show_directories_nav,
         operators: operators
             .into_iter()
-            .map(|op| OperatorRow {
-                id: op.id.to_string(),
-                email: op.email,
-                role_label: role_label(op.role),
-                apps_label: if op.role == AdminRole::InstanceAdmin {
-                    "All applications".to_string()
-                } else if op.granted_app_ids.is_empty() {
-                    "No applications".to_string()
-                } else {
-                    op.granted_app_ids
-                        .iter()
-                        .map(|id| id.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                },
-                created_at: op.created_at,
+            .map(|op| {
+                let scope_label = operator_scope_label(&op);
+                OperatorRow {
+                    id: op.id.to_string(),
+                    email: op.email,
+                    role_label: role_label(op.role),
+                    scope_label,
+                    created_at: op.created_at,
+                }
             })
             .collect(),
         flash: None,
@@ -1364,19 +1809,22 @@ async fn new_operator_page(
     State(state): State<AppState>,
     Extension(identity): Extension<AdminSession>,
 ) -> Response {
-    if !identity.is_instance_admin() {
+    if !admin_access::can_manage_operators(&identity) {
         return Redirect::to("/admin/dashboard").into_response();
     }
 
-    let apps = match admin_ops::list_all_applications_for_picker(&state.db).await {
+    let apps = match admin_ops::list_applications_for_picker(&state.db, &identity).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+    let directories = match admin_ops::list_directories_for_picker(&state.db, &identity).await {
         Ok(rows) => rows,
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    render(NewOperatorTemplate {
-        admin_email: identity.email.clone(),
-        is_instance_admin: true,
-        applications: apps
+    render(new_operator_template(
+        &identity,
+        apps
             .into_iter()
             .map(|(id, name)| AppPickerRow {
                 app_id: id.to_string(),
@@ -1384,10 +1832,18 @@ async fn new_operator_page(
                 selected: false,
             })
             .collect(),
-        error: None,
-        email: None,
-        role: Some("app_admin".to_string()),
-    })
+        directories
+            .into_iter()
+            .map(|(id, name)| DirectorySelectRow {
+                directory_id: id.to_string(),
+                label: name,
+                selected: false,
+            })
+            .collect(),
+        None,
+        None,
+        Some("app_admin".to_string()),
+    ))
     .into_response()
 }
 
@@ -1398,6 +1854,8 @@ struct CreateOperatorForm {
     role: String,
     #[serde(default, deserialize_with = "deserialize_form_string_vec")]
     app_ids: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_form_string_vec")]
+    directory_ids: Vec<String>,
 }
 
 fn deserialize_form_string_vec<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
@@ -1422,16 +1880,20 @@ async fn create_operator(
     Extension(identity): Extension<AdminSession>,
     Form(body): Form<CreateOperatorForm>,
 ) -> Response {
-    if !identity.is_instance_admin() {
+    if !admin_access::can_manage_operators(&identity) {
         return Redirect::to("/admin/dashboard").into_response();
     }
 
-    let apps = match admin_ops::list_all_applications_for_picker(&state.db).await {
+    let apps = match admin_ops::list_applications_for_picker(&state.db, &identity).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+    let directories = match admin_ops::list_directories_for_picker(&state.db, &identity).await {
         Ok(rows) => rows,
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    let picker: Vec<AppPickerRow> = apps
+    let app_picker: Vec<AppPickerRow> = apps
         .iter()
         .map(|(id, name)| AppPickerRow {
             app_id: id.to_string(),
@@ -1439,18 +1901,26 @@ async fn create_operator(
             selected: body.app_ids.iter().any(|s| s == &id.to_string()),
         })
         .collect();
+    let directory_picker: Vec<DirectorySelectRow> = directories
+        .iter()
+        .map(|(id, name)| DirectorySelectRow {
+            directory_id: id.to_string(),
+            label: name.clone(),
+            selected: body.directory_ids.iter().any(|s| s == &id.to_string()),
+        })
+        .collect();
 
     let role = match body.role.parse::<AdminRole>() {
         Ok(r) => r,
         Err(_) => {
-            return render(NewOperatorTemplate {
-                admin_email: identity.email.clone(),
-                is_instance_admin: true,
-                applications: picker,
-                error: Some("Invalid operator role.".to_string()),
-                email: Some(body.email),
-                role: Some(body.role),
-            })
+            return render(new_operator_template(
+                &identity,
+                app_picker,
+                directory_picker,
+                Some("Invalid operator role.".to_string()),
+                Some(body.email),
+                Some(body.role),
+            ))
             .into_response();
         }
     };
@@ -1460,40 +1930,68 @@ async fn create_operator(
         match raw.parse::<ApplicationId>() {
             Ok(id) => app_ids.push(id),
             Err(_) => {
-                return render(NewOperatorTemplate {
-                    admin_email: identity.email.clone(),
-                    is_instance_admin: true,
-                    applications: picker,
-                    error: Some(format!("Invalid application id: {raw}")),
-                    email: Some(body.email),
-                    role: Some(body.role),
-                })
+                return render(new_operator_template(
+                    &identity,
+                    app_picker,
+                    directory_picker,
+                    Some(format!("Invalid application id: {raw}")),
+                    Some(body.email),
+                    Some(body.role),
+                ))
                 .into_response();
             }
         }
     }
 
-    match admin_ops::create_operator(&state.db, &body.email, &body.password, role, &app_ids).await {
+    let mut directory_ids = Vec::new();
+    for raw in &body.directory_ids {
+        match raw.parse::<DirectoryId>() {
+            Ok(id) => directory_ids.push(id),
+            Err(_) => {
+                return render(new_operator_template(
+                    &identity,
+                    app_picker,
+                    directory_picker,
+                    Some(format!("Invalid directory id: {raw}")),
+                    Some(body.email),
+                    Some(body.role),
+                ))
+                .into_response();
+            }
+        }
+    }
+
+    match admin_ops::create_operator(
+        &state.db,
+        &identity,
+        &body.email,
+        &body.password,
+        role,
+        &app_ids,
+        &directory_ids,
+    )
+    .await
+    {
         Ok(_) => Redirect::to("/admin/operators").into_response(),
         Err(e) if e.to_string().contains("unique") || e.to_string().contains("23505") => {
-            render(NewOperatorTemplate {
-                admin_email: identity.email.clone(),
-                is_instance_admin: true,
-                applications: picker,
-                error: Some("An operator with that email already exists.".to_string()),
-                email: Some(body.email),
-                role: Some(body.role),
-            })
+            render(new_operator_template(
+                &identity,
+                app_picker,
+                directory_picker,
+                Some("An operator with that email already exists.".to_string()),
+                Some(body.email),
+                Some(body.role),
+            ))
             .into_response()
         }
-        Err(e) => render(NewOperatorTemplate {
-            admin_email: identity.email.clone(),
-            is_instance_admin: true,
-            applications: picker,
-            error: Some(e.to_string()),
-            email: Some(body.email),
-            role: Some(body.role),
-        })
+        Err(e) => render(new_operator_template(
+            &identity,
+            app_picker,
+            directory_picker,
+            Some(e.to_string()),
+            Some(body.email),
+            Some(body.role),
+        ))
         .into_response(),
     }
 }
@@ -1501,6 +1999,7 @@ async fn create_operator(
 #[derive(Deserialize)]
 struct CreateApplicationJsonRequest {
     name: String,
+    directory_id: Option<DirectoryId>,
 }
 
 #[derive(serde::Serialize)]
@@ -1515,7 +2014,7 @@ async fn create_application_json(
     Extension(identity): Extension<AdminSession>,
     Json(body): Json<CreateApplicationJsonRequest>,
 ) -> Result<(axum::http::StatusCode, Json<CreateApplicationJsonResponse>)> {
-    if !identity.is_instance_admin() {
+    if !admin_access::can_create_applications(&identity) {
         return Err(AppError::Forbidden);
     }
 
@@ -1524,19 +2023,24 @@ async fn create_application_json(
         return Err(AppError::Validation("name is required".to_string()));
     }
 
-    let id = ApplicationId::new();
+    if let Some(dir_id) = body.directory_id {
+        if !admin_access::can_access_directory(&state.db, &identity, dir_id)
+            .await
+            .map_err(AppError::Internal)?
+        {
+            return Err(AppError::Forbidden);
+        }
+    }
+
     let client_secret = format!(
         "secret_{}",
         &Uuid::new_v4().to_string().replace('-', "")[..32]
     );
     let secret_hash = password::hash(&client_secret).map_err(AppError::Internal)?;
 
-    sqlx::query("INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)")
-        .bind(id)
-        .bind(&secret_hash)
-        .bind(&name)
-        .execute(&state.db)
-        .await?;
+    let id = admin_ops::create_application(&state.db, &name, &secret_hash, body.directory_id)
+        .await
+        .map_err(AppError::Internal)?;
 
     Ok((
         axum::http::StatusCode::CREATED,
@@ -1550,15 +2054,165 @@ async fn create_application_json(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn nav_context(identity: &AdminSession) -> (String, bool) {
-    (identity.email.clone(), identity.is_instance_admin())
+fn nav_context(identity: &AdminSession) -> AdminNav {
+    AdminNav {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        can_manage_operators: admin_access::can_manage_operators(identity),
+        can_create_applications: admin_access::can_create_applications(identity),
+        can_delete_applications: admin_access::can_delete_applications(identity),
+        can_manage_directories: admin_access::can_manage_directories(identity),
+        show_directories_nav: admin_access::can_view_directories(identity),
+    }
+}
+
+struct AdminNav {
+    admin_email: String,
+    is_instance_admin: bool,
+    can_manage_operators: bool,
+    can_create_applications: bool,
+    can_delete_applications: bool,
+    can_manage_directories: bool,
+    show_directories_nav: bool,
+}
+
+async fn require_app_access(
+    db: &sqlx::PgPool,
+    identity: &AdminSession,
+    app_id: ApplicationId,
+) -> std::result::Result<(), Response> {
+    match admin_access::can_access_app(db, identity, app_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(Redirect::to("/admin/dashboard").into_response()),
+        Err(e) => Err(AppError::Internal(e).into_response()),
+    }
+}
+
+fn operator_scope_label(op: &admin_ops::OperatorSummary) -> String {
+    match op.role {
+        AdminRole::InstanceAdmin => "All applications".to_string(),
+        AdminRole::DirectoryAdmin => {
+            if op.granted_directory_ids.is_empty() {
+                "No directories".to_string()
+            } else {
+                op.granted_directory_ids
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        }
+        AdminRole::AppAdmin => {
+            if op.granted_app_ids.is_empty() {
+                "No applications".to_string()
+            } else {
+                op.granted_app_ids
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        }
+    }
+}
+
+fn new_operator_template(
+    identity: &AdminSession,
+    applications: Vec<AppPickerRow>,
+    directories: Vec<DirectorySelectRow>,
+    error: Option<String>,
+    email: Option<String>,
+    role: Option<String>,
+) -> NewOperatorTemplate {
+    let nav = nav_context(identity);
+    NewOperatorTemplate {
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        show_directories_nav: nav.show_directories_nav,
+        show_instance_admin_role: nav.is_instance_admin,
+        applications,
+        directories,
+        error,
+        email,
+        role,
+    }
 }
 
 fn role_label(role: AdminRole) -> String {
     match role {
         AdminRole::InstanceAdmin => "Instance admin".to_string(),
         AdminRole::AppAdmin => "App admin".to_string(),
+        AdminRole::DirectoryAdmin => "Directory admin".to_string(),
     }
+}
+
+fn parse_directory_id_option(
+    raw: Option<&str>,
+) -> std::result::Result<Option<DirectoryId>, Response> {
+    match raw.map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(None),
+        Some(s) => s
+            .parse::<DirectoryId>()
+            .map(Some)
+            .map_err(|_| Redirect::to("/admin/dashboard").into_response()),
+    }
+}
+
+async fn directory_select_rows(
+    db: &sqlx::PgPool,
+    session: &AdminSession,
+    selected: Option<DirectoryId>,
+) -> std::result::Result<Vec<DirectorySelectRow>, anyhow::Error> {
+    let picker = admin_ops::list_directories_for_picker(db, session).await?;
+    let default_id = if session.is_instance_admin() {
+        identity::get_default_directory_id(db).await.ok()
+    } else {
+        None
+    };
+    Ok(picker
+        .into_iter()
+        .map(|(id, name)| {
+            let is_selected = selected
+                .map(|sel| sel == id)
+                .unwrap_or_else(|| default_id.map(|def| def == id).unwrap_or(false));
+            DirectorySelectRow {
+                directory_id: id.to_string(),
+                label: name,
+                selected: is_selected,
+            }
+        })
+        .collect())
+}
+
+async fn render_new_app_error(
+    state: &AppState,
+    identity: &AdminSession,
+    error: &str,
+    name: Option<String>,
+    directory_id: Option<DirectoryId>,
+) -> Response {
+    let directories = match directory_select_rows(&state.db, identity, directory_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+    let nav = nav_context(identity);
+    render(NewAppTemplate {
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        show_directories_nav: nav.show_directories_nav,
+        directories,
+        error: Some(error.to_string()),
+        name,
+        directory_id: directory_id.map(|id| id.to_string()),
+    })
+    .into_response()
+}
+
+fn parse_directory_id(raw: &str) -> std::result::Result<DirectoryId, Response> {
+    raw.parse::<DirectoryId>()
+        .map_err(|_| Redirect::to("/admin/directories").into_response())
 }
 
 fn parse_app_id(raw: &str) -> std::result::Result<ApplicationId, Response> {

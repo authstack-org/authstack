@@ -7,7 +7,7 @@ use crate::ids::{ApplicationId, InviteId, OrganizationId, UserId};
 pub struct AppInvite {
     pub id: InviteId,
     pub token: String,
-    pub app_id: ApplicationId,
+    pub application_id: ApplicationId,
     pub organization_id: OrganizationId,
     pub email: String,
     pub role: String,

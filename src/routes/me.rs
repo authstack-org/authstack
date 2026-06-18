@@ -9,14 +9,17 @@ use serde::Serialize;
 use crate::{
     AppState,
     error::{AppError, Result},
-    ids::{ApplicationId, UserId},
-    models::organization::{OrgType, Organization},
+    ids::{ApplicationId, DirectoryId, UserId},
+    models::organization::Organization,
+    services::identity::{self, AppContext},
 };
 
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     pub user_id: UserId,
     pub app_id: ApplicationId,
+    pub directory_id: DirectoryId,
+    pub ctx: AppContext,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,8 +53,21 @@ pub async fn authenticate_user(state: &AppState, headers: &HeaderMap) -> Result<
         .app_id
         .parse()
         .map_err(|_| AppError::Unauthorized("invalid app id in token".to_string()))?;
+    let directory_id = claims
+        .directory_id
+        .parse()
+        .map_err(|_| AppError::Unauthorized("invalid directory id in token".to_string()))?;
 
-    Ok(UserIdentity { user_id, app_id })
+    let ctx = identity::load_app_context(&state.db, app_id)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("invalid app id in token".to_string()))?;
+
+    Ok(UserIdentity {
+        user_id,
+        app_id,
+        directory_id,
+        ctx,
+    })
 }
 
 async fn list_my_organizations(
@@ -60,48 +76,11 @@ async fn list_my_organizations(
 ) -> Result<Json<Vec<UserOrganization>>> {
     let user = authenticate_user(&state, &headers).await?;
 
-    #[derive(sqlx::FromRow)]
-    struct Row {
-        id: crate::ids::OrganizationId,
-        app_id: ApplicationId,
-        name: String,
-        slug: String,
-        org_type: OrgType,
-        logo: Option<String>,
-        created_at: chrono::DateTime<chrono::Utc>,
-        updated_at: chrono::DateTime<chrono::Utc>,
-        role: String,
-    }
-
-    let orgs: Vec<Row> = sqlx::query_as(
-        r#"SELECT o.id, o.app_id, o.name, o.slug, o.org_type, o.logo, o.created_at, o.updated_at, m.role
-           FROM member m
-           JOIN organization o ON o.id = m.organization_id
-           WHERE m.user_id = $1 AND o.app_id = $2
-           ORDER BY
-             CASE WHEN o.org_type = 'personal' THEN 0 ELSE 1 END,
-             o.created_at DESC"#,
-    )
-    .bind(user.user_id)
-    .bind(user.app_id)
-    .fetch_all(&state.db)
-    .await?;
+    let orgs = identity::list_organizations_for_user(&state.db, &user.ctx, user.user_id).await?;
 
     Ok(Json(
         orgs.into_iter()
-            .map(|row| UserOrganization {
-                organization: Organization {
-                    id: row.id,
-                    app_id: row.app_id,
-                    name: row.name,
-                    slug: row.slug,
-                    org_type: row.org_type,
-                    logo: row.logo,
-                    created_at: row.created_at,
-                    updated_at: row.updated_at,
-                },
-                role: row.role,
-            })
+            .map(|(organization, role)| UserOrganization { organization, role })
             .collect(),
     ))
 }
@@ -111,17 +90,10 @@ pub async fn membership_for_org(
     app_id: ApplicationId,
     user_id: UserId,
     org_id: crate::ids::OrganizationId,
-) -> Result<(OrgType, String)> {
-    sqlx::query_as(
-        r#"SELECT o.org_type, m.role
-           FROM member m
-           JOIN organization o ON o.id = m.organization_id
-           WHERE m.user_id = $1 AND o.id = $2 AND o.app_id = $3"#,
-    )
-    .bind(user_id)
-    .bind(org_id)
-    .bind(app_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Forbidden)
+) -> Result<(crate::models::organization::OrgType, String)> {
+    let ctx = identity::load_app_context(&state.db, app_id)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("invalid application".to_string()))?;
+
+    identity::membership_for_org(&state.db, &ctx, user_id, org_id).await
 }

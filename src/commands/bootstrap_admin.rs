@@ -2,7 +2,7 @@ use anyhow::{Context, bail};
 use sqlx::PgPool;
 
 use crate::models::admin_user::AdminUser;
-use crate::services::admin_auth;
+use crate::{db, services::admin_auth};
 
 const MIN_PASSWORD_LEN: usize = 8;
 
@@ -15,17 +15,13 @@ pub struct BootstrapAdminOptions {
 }
 
 pub async fn run(database_url: &str, options: BootstrapAdminOptions) -> anyhow::Result<AdminUser> {
-    let db = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(2)
-        .connect(database_url)
-        .await
-        .context("failed to connect to database")?;
-
+    let migrator = db::connect_migrator(database_url).await?;
     sqlx::migrate!("./migrations")
-        .run(&db)
+        .run(&migrator)
         .await
         .context("failed to run database migrations")?;
 
+    let db = db::connect(database_url, 2).await?;
     bootstrap_first_admin(&db, &options.email, &options.password).await
 }
 

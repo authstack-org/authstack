@@ -6,11 +6,12 @@ use jsonwebtoken::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::ids::{AdminUserId, ApplicationId, OrganizationId, UserId};
+use crate::ids::{AdminUserId, ApplicationId, DirectoryId, OrganizationId, UserId};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccessTokenClaims {
     pub sub: String, // user_id
+    pub directory_id: String,
     pub app_id: String,
     pub org_id: String,
     pub org_type: String,
@@ -84,6 +85,7 @@ impl JwtService {
     pub fn issue_access_token(
         &self,
         user_id: UserId,
+        directory_id: DirectoryId,
         app_id: ApplicationId,
         org_id: OrganizationId,
         org_type: &str,
@@ -93,6 +95,7 @@ impl JwtService {
         let now = Utc::now().timestamp();
         let claims = AccessTokenClaims {
             sub: user_id.to_string(),
+            directory_id: directory_id.to_string(),
             app_id: app_id.to_string(),
             org_id: org_id.to_string(),
             org_type: org_type.to_string(),
@@ -195,6 +198,7 @@ mod tests {
         let token = jwt
             .issue_access_token(
                 UserId::new(),
+                DirectoryId::new(),
                 ApplicationId::new(),
                 OrganizationId::new(),
                 "team",

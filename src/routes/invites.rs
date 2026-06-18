@@ -106,7 +106,7 @@ async fn create_invite(
     let invite = invites::create_invite(
         &state.db,
         CreateInviteInput {
-            app_id: app.app_id,
+            application_id: app.app_id,
             organization_id: org_id,
             email: &body.email,
             role: body.role.as_deref().unwrap_or("member"),

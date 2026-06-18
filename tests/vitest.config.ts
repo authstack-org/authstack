@@ -4,6 +4,7 @@ import { defineConfig }  from 'vitest/config'
 // Test files must run in this order — later suites depend on IDs created in earlier ones.
 const FILE_ORDER = [
   'src/admin.test.ts',
+  'src/admin-roles.test.ts',
   'src/auth.test.ts',
   'src/users.test.ts',
   'src/orgs.test.ts',

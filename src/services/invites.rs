@@ -7,11 +7,11 @@ use crate::{
     error::{AppError, Result as ApiResult},
     ids::{AccountId, ApplicationId, InviteId, MemberId, OrganizationId, UserId},
     models::{app_invite::AppInvite, user::User},
-    services::password,
+    services::{identity, password},
 };
 
 pub struct CreateInviteInput<'a> {
-    pub app_id: ApplicationId,
+    pub application_id: ApplicationId,
     pub organization_id: OrganizationId,
     pub email: &'a str,
     pub role: &'a str,
@@ -49,19 +49,26 @@ pub async fn create_invite(db: &PgPool, input: CreateInviteInput<'_>) -> Result<
         input.role.trim()
     };
 
-    let org: Option<(String, String)> = sqlx::query_as(
-        "SELECT name, org_type::text FROM organization WHERE id = $1 AND app_id = $2",
+    let ctx = identity::load_app_context(db, input.application_id)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+        .ok_or_else(|| anyhow::anyhow!("application not found"))?;
+
+    if !identity::organization_visible_to_app(db, &ctx, &input.organization_id.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
+        anyhow::bail!("organization not found");
+    }
+
+    let org_type: Option<String> = sqlx::query_scalar(
+        "SELECT org_type::text FROM organization WHERE id = $1",
     )
     .bind(input.organization_id)
-    .bind(input.app_id)
     .fetch_optional(db)
     .await?;
 
-    let Some((_, org_type)) = org else {
-        anyhow::bail!("organization not found");
-    };
-
-    if org_type != "team" {
+    if org_type.as_deref() != Some("team") {
         anyhow::bail!("invites can only be created for team organizations");
     }
 
@@ -100,14 +107,14 @@ pub async fn create_invite(db: &PgPool, input: CreateInviteInput<'_>) -> Result<
         .map(str::to_string);
 
     let invite: AppInvite = sqlx::query_as(
-        r#"INSERT INTO app_invite (id, token, app_id, organization_id, email, role, name, expires_at)
+        r#"INSERT INTO app_invite (id, token, application_id, organization_id, email, role, name, expires_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING id, token, app_id, organization_id, email, role, name, expires_at,
+           RETURNING id, token, application_id, organization_id, email, role, name, expires_at,
                      accepted_at, accepted_user_id, created_at"#,
     )
     .bind(id)
     .bind(&token)
-    .bind(input.app_id)
+    .bind(input.application_id)
     .bind(input.organization_id)
     .bind(&email)
     .bind(role)
@@ -122,18 +129,18 @@ pub async fn create_invite(db: &PgPool, input: CreateInviteInput<'_>) -> Result<
 
 pub async fn list_pending_invites(
     db: &PgPool,
-    app_id: ApplicationId,
+    application_id: ApplicationId,
     organization_id: OrganizationId,
 ) -> Result<Vec<AppInvite>> {
     let rows: Vec<AppInvite> = sqlx::query_as(
-        r#"SELECT id, token, app_id, organization_id, email, role, name, expires_at,
+        r#"SELECT id, token, application_id, organization_id, email, role, name, expires_at,
                   accepted_at, accepted_user_id, created_at
            FROM app_invite
-           WHERE app_id = $1 AND organization_id = $2 AND accepted_at IS NULL
+           WHERE application_id = $1 AND organization_id = $2 AND accepted_at IS NULL
              AND expires_at > NOW()
            ORDER BY created_at DESC"#,
     )
-    .bind(app_id)
+    .bind(application_id)
     .bind(organization_id)
     .fetch_all(db)
     .await?;
@@ -151,17 +158,17 @@ pub struct AppInviteSummary {
 
 pub async fn list_pending_invites_for_app(
     db: &PgPool,
-    app_id: ApplicationId,
+    application_id: ApplicationId,
 ) -> Result<Vec<AppInviteSummary>> {
     let rows: Vec<(String, String, String, chrono::DateTime<Utc>, OrganizationId, String)> =
         sqlx::query_as(
             r#"SELECT i.email, i.role, i.token, i.expires_at, i.organization_id, o.name
                FROM app_invite i
                JOIN organization o ON o.id = i.organization_id
-               WHERE i.app_id = $1 AND i.accepted_at IS NULL AND i.expires_at > NOW()
+               WHERE i.application_id = $1 AND i.accepted_at IS NULL AND i.expires_at > NOW()
                ORDER BY i.created_at DESC"#,
         )
-        .bind(app_id)
+        .bind(application_id)
         .fetch_all(db)
         .await?;
 
@@ -184,7 +191,7 @@ pub async fn list_pending_invites_for_app(
 
 pub async fn get_invite_by_token(db: &PgPool, token: &str) -> Result<Option<InviteWithContext>> {
     let row: Option<AppInvite> = sqlx::query_as(
-        r#"SELECT id, token, app_id, organization_id, email, role, name, expires_at,
+        r#"SELECT id, token, application_id, organization_id, email, role, name, expires_at,
                   accepted_at, accepted_user_id, created_at
            FROM app_invite WHERE token = $1"#,
     )
@@ -199,11 +206,11 @@ pub async fn get_invite_by_token(db: &PgPool, token: &str) -> Result<Option<Invi
     let meta: Option<(String, String)> = sqlx::query_as(
         r#"SELECT o.name, a.name
            FROM organization o
-           JOIN application a ON a.id = o.app_id
-           WHERE o.id = $1 AND o.app_id = $2"#,
+           JOIN application a ON a.id = $1
+           WHERE o.id = $2"#,
     )
+    .bind(invite.application_id)
     .bind(invite.organization_id)
-    .bind(invite.app_id)
     .fetch_optional(db)
     .await?;
 
@@ -240,26 +247,23 @@ pub async fn accept_invite(
         ));
     }
 
-    let ctx = get_invite_by_token(db, token)
+    let ctx_wrap = get_invite_by_token(db, token)
         .await
         .map_err(AppError::Internal)?
         .ok_or_else(|| AppError::NotFound("invite not found".to_string()))?;
 
-    validate_invite_active(&ctx.invite)?;
+    validate_invite_active(&ctx_wrap.invite)?;
 
-    let app_id = ctx.invite.app_id;
-    let org_id = ctx.invite.organization_id;
-    let email = ctx.invite.email.clone();
-    let role = ctx.invite.role.clone();
+    let application_id = ctx_wrap.invite.application_id;
+    let org_id = ctx_wrap.invite.organization_id;
+    let email = ctx_wrap.invite.email.clone();
+    let role = ctx_wrap.invite.role.clone();
 
-    let existing: Option<User> = sqlx::query_as(
-        r#"SELECT id, app_id, name, email, email_verified, image, created_at, updated_at
-           FROM "user" WHERE app_id = $1 AND lower(email) = lower($2)"#,
-    )
-    .bind(app_id)
-    .bind(&email)
-    .fetch_optional(db)
-    .await?;
+    let app_ctx = identity::load_app_context(db, application_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("invite not found".to_string()))?;
+
+    let existing = identity::find_user_for_login(db, &app_ctx, &email).await?;
 
     let mut tx = db.begin().await?;
 
@@ -283,13 +287,17 @@ pub async fn accept_invite(
             return Err(AppError::Unauthorized("invalid password".to_string()));
         }
 
+        if !identity::user_has_app_access(db, user.id, application_id).await? {
+            identity::grant_app_access(&mut tx, user.id, application_id).await?;
+        }
+
         user
     } else {
         let display_name = {
             let from_form = name.trim();
             if !from_form.is_empty() {
                 from_form.to_string()
-            } else if let Some(ref preset) = ctx.invite.name {
+            } else if let Some(ref preset) = ctx_wrap.invite.name {
                 preset.clone()
             } else {
                 return Err(AppError::Validation("name is required".to_string()));
@@ -297,14 +305,17 @@ pub async fn accept_invite(
         };
 
         let password_hash = password::hash(password).map_err(AppError::Internal)?;
+        let scoped_application_id = identity::org_application_scope(&app_ctx);
+        let org_application_id = scoped_application_id;
 
         let user: User = sqlx::query_as(
-            r#"INSERT INTO "user" (id, app_id, name, email, email_verified)
-               VALUES ($1, $2, $3, $4, false)
-               RETURNING id, app_id, name, email, email_verified, image, created_at, updated_at"#,
+            r#"INSERT INTO "user" (id, directory_id, scoped_application_id, name, email, email_verified)
+               VALUES ($1, $2, $3, $4, $5, false)
+               RETURNING id, directory_id, scoped_application_id, name, email, email_verified, image, created_at, updated_at"#,
         )
         .bind(UserId::new())
-        .bind(app_id)
+        .bind(app_ctx.directory_id)
+        .bind(scoped_application_id)
         .bind(&display_name)
         .bind(&email)
         .fetch_one(&mut *tx)
@@ -319,12 +330,17 @@ pub async fn accept_invite(
         .execute(&mut *tx)
         .await?;
 
+        identity::grant_app_access(&mut tx, user.id, application_id).await?;
+
         let personal_org_slug = format!("{}-personal", user.id);
         let personal_org_id: OrganizationId = sqlx::query_scalar(
-            "INSERT INTO organization (id, app_id, name, slug, org_type) VALUES ($1, $2, $3, $4, 'personal') RETURNING id",
+            r#"INSERT INTO organization (id, directory_id, application_id, name, slug, org_type)
+               VALUES ($1, $2, $3, $4, $5, 'personal')
+               RETURNING id"#,
         )
         .bind(OrganizationId::new())
-        .bind(app_id)
+        .bind(app_ctx.directory_id)
+        .bind(org_application_id)
         .bind(format!("{}'s workspace", display_name))
         .bind(personal_org_slug)
         .fetch_one(&mut *tx)

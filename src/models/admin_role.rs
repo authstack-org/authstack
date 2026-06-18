@@ -4,6 +4,7 @@ use std::str::FromStr;
 pub enum AdminRole {
     InstanceAdmin,
     AppAdmin,
+    DirectoryAdmin,
 }
 
 impl AdminRole {
@@ -11,6 +12,7 @@ impl AdminRole {
         match self {
             Self::InstanceAdmin => "instance_admin",
             Self::AppAdmin => "app_admin",
+            Self::DirectoryAdmin => "directory_admin",
         }
     }
 }
@@ -22,6 +24,7 @@ impl FromStr for AdminRole {
         match s {
             "instance_admin" => Ok(Self::InstanceAdmin),
             "app_admin" => Ok(Self::AppAdmin),
+            "directory_admin" => Ok(Self::DirectoryAdmin),
             _ => Err(()),
         }
     }

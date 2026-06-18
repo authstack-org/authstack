@@ -33,7 +33,7 @@
                 <tr class="border-b bg-muted/50">
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Email</th>
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Role</th>
-                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Applications</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Scope</th>
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Created</th>
                 </tr>
             </thead>
@@ -42,7 +42,7 @@
                 <tr class="border-b">
                     <td class="p-4 align-middle font-medium">{{ op.email }}</td>
                     <td class="p-4 align-middle"><span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">{{ op.role_label }}</span></td>
-                    <td class="p-4 align-middle text-muted-foreground">{{ op.apps_label }}</td>
+                    <td class="p-4 align-middle text-muted-foreground">{{ op.scope_label }}</td>
                     <td class="p-4 align-middle text-muted-foreground">{{ op.created_at }}</td>
                 </tr>
                 {% endfor %}

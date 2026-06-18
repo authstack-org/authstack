@@ -437,3 +437,118 @@ describe('Admin — operators and app scoping', () => {
     expect(html).toContain('Pending invites')
   })
 })
+
+// ── Directories ─────────────────────────────────────────────────────────────────
+
+describe('Admin — directories', () => {
+  function getDirectoryIdFromList(html: string, needle: string): string {
+    for (const part of html.split('data-directory-id="').slice(1)) {
+      if (part.includes(needle)) {
+        const match = part.match(/^(dir_[^"]+)"/)
+        if (match) return match[1]
+      }
+    }
+    throw new Error(`directory id for ${needle} not found in directories list`)
+  }
+
+  it('lists directories and creates a new one', async () => {
+    const cookie = await loginAdmin()
+
+    const listRes = await fetch(`${BASE_URL}/admin/directories`, {
+      headers: { Cookie: cookie },
+    })
+    expect(listRes.status).toBe(200)
+    const listHtml = await listRes.text()
+    expect(listHtml).toContain('default')
+
+    const slug = `acme-${Date.now()}`
+    const createRes = await fetch(`${BASE_URL}/admin/directories/new`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookie,
+      },
+      body: new URLSearchParams({
+        name: 'Acme Corp',
+        slug,
+        identity_policy: 'shared_directory',
+      }).toString(),
+      redirect: 'manual',
+    })
+    expect(createRes.status).toBe(303)
+    expect(createRes.headers.get('location')).toBe('/admin/directories')
+
+    const afterRes = await fetch(`${BASE_URL}/admin/directories`, {
+      headers: { Cookie: cookie },
+    })
+    const afterHtml = await afterRes.text()
+    expect(afterHtml).toContain('Acme Corp')
+    expect(afterHtml).toContain(slug)
+    expect(afterHtml).toContain('Shared directory')
+  })
+
+  it('opens directory detail and adds a directory admin from the directory UI', async () => {
+    const cookie = await loginAdmin()
+    const ts = Date.now()
+    const slug = `dir-ui-${ts}`
+    const name = `Dir UI ${ts}`
+
+    const createRes = await fetch(`${BASE_URL}/admin/directories/new`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookie,
+      },
+      body: new URLSearchParams({
+        name,
+        slug,
+        identity_policy: 'application_silo',
+      }).toString(),
+      redirect: 'manual',
+    })
+    expect(createRes.status).toBe(303)
+
+    const listRes = await fetch(`${BASE_URL}/admin/directories`, {
+      headers: { Cookie: cookie },
+    })
+    const listHtml = await listRes.text()
+    const directoryId = getDirectoryIdFromList(listHtml, slug)
+
+    const detailRes = await fetch(`${BASE_URL}/admin/directories/${directoryId}`, {
+      headers: { Cookie: cookie },
+    })
+    expect(detailRes.status).toBe(200)
+    const detailHtml = await detailRes.text()
+    expect(detailHtml).toContain(name)
+    expect(detailHtml).toContain('Add directory admin')
+
+    const email = `dir-ui-admin-${ts}@authstack.local`
+    const addRes = await fetch(`${BASE_URL}/admin/directories/${directoryId}/admins/new`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookie,
+      },
+      body: new URLSearchParams({
+        email,
+        password: 'dir-ui-admin-password-123',
+      }).toString(),
+      redirect: 'manual',
+    })
+    expect(addRes.status).toBe(303)
+    expect(addRes.headers.get('location')).toBe(`/admin/directories/${directoryId}`)
+
+    const afterDetail = await fetch(`${BASE_URL}/admin/directories/${directoryId}`, {
+      headers: { Cookie: cookie },
+    })
+    expect(await afterDetail.text()).toContain(email)
+
+    const loginRes = await fetch(`${BASE_URL}/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email, password: 'dir-ui-admin-password-123' }).toString(),
+      redirect: 'manual',
+    })
+    expect(loginRes.status).toBe(303)
+  })
+})

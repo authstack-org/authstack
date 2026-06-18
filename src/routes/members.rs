@@ -8,9 +8,10 @@ use serde::Deserialize;
 use crate::{
     AppState,
     error::{AppError, Result},
-    ids::{ApplicationId, MemberId, OrganizationId, UserId},
+    ids::{MemberId, OrganizationId, UserId},
     middleware::app_auth::AppIdentity,
     models::member::Member,
+    services::identity,
 };
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +35,7 @@ async fn list_members(
         .parse()
         .map_err(|_| AppError::NotFound("organization not found".to_string()))?;
 
-    ensure_org_belongs_to_app(&state, org_id, app.app_id).await?;
+    ensure_org_visible(&state, &app.ctx, org_id).await?;
 
     let members: Vec<Member> = sqlx::query_as(
         "SELECT id, organization_id, user_id, role, created_at, updated_at FROM member WHERE organization_id = $1",
@@ -56,17 +57,10 @@ async fn add_member(
         .parse()
         .map_err(|_| AppError::NotFound("organization not found".to_string()))?;
 
-    ensure_org_belongs_to_app(&state, org_id, app.app_id).await?;
-    ensure_team_org(&state, org_id, app.app_id).await?;
+    ensure_org_visible(&state, &app.ctx, org_id).await?;
+    ensure_team_org(&state, org_id).await?;
 
-    let user_exists: Option<UserId> =
-        sqlx::query_scalar(r#"SELECT id FROM "user" WHERE id = $1 AND app_id = $2"#)
-            .bind(body.user_id)
-            .bind(app.app_id)
-            .fetch_optional(&state.db)
-            .await?;
-
-    if user_exists.is_none() {
+    if !identity::user_visible_to_application(&state.db, body.user_id, app.app_id).await? {
         return Err(AppError::NotFound("user not found".to_string()));
     }
 
@@ -97,7 +91,7 @@ async fn remove_member(
         .parse()
         .map_err(|_| AppError::NotFound("user not found".to_string()))?;
 
-    ensure_org_belongs_to_app(&state, org_id, app.app_id).await?;
+    ensure_org_visible(&state, &app.ctx, org_id).await?;
 
     sqlx::query("DELETE FROM member WHERE organization_id = $1 AND user_id = $2")
         .bind(org_id)
@@ -108,33 +102,23 @@ async fn remove_member(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-async fn ensure_org_belongs_to_app(
+async fn ensure_org_visible(
     state: &AppState,
+    ctx: &identity::AppContext,
     org_id: OrganizationId,
-    app_id: ApplicationId,
 ) -> Result<()> {
-    let exists: Option<OrganizationId> =
-        sqlx::query_scalar("SELECT id FROM organization WHERE id = $1 AND app_id = $2")
-            .bind(org_id)
-            .bind(app_id)
-            .fetch_optional(&state.db)
-            .await?;
-
-    exists
-        .map(|_| ())
-        .ok_or_else(|| AppError::NotFound("organization not found".to_string()))
+    if identity::organization_visible_to_app(&state.db, ctx, &org_id.to_string()).await? {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("organization not found".to_string()))
+    }
 }
 
-async fn ensure_team_org(
-    state: &AppState,
-    org_id: OrganizationId,
-    app_id: ApplicationId,
-) -> Result<()> {
+async fn ensure_team_org(state: &AppState, org_id: OrganizationId) -> Result<()> {
     let org_type: Option<String> = sqlx::query_scalar(
-        "SELECT org_type::text FROM organization WHERE id = $1 AND app_id = $2",
+        "SELECT org_type::text FROM organization WHERE id = $1",
     )
     .bind(org_id)
-    .bind(app_id)
     .fetch_optional(&state.db)
     .await?;
 

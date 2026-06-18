@@ -5,6 +5,10 @@
 {% block nav_email %}{{ admin_email }}{% endblock %}
 {% block header_email %}{{ admin_email }}{% endblock %}
 
+{% block nav_directories_link %}
+<a href="/admin/directories" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Directories</a>
+{% endblock %}
+
 {% block nav_operators_link %}
 <a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
 {% endblock %}
@@ -37,6 +41,16 @@
             <input type="text" id="name" name="name" required autofocus
                    value="{% if let Some(n) = name %}{{ n }}{% endif %}"
                    class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        </div>
+        <div class="space-y-2">
+            <label for="directory_id" class="text-sm font-medium">Directory</label>
+            <select id="directory_id" name="directory_id"
+                    class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                {% for dir in directories %}
+                <option value="{{ dir.directory_id }}" {% if dir.selected %}selected{% endif %}>{{ dir.label }}</option>
+                {% endfor %}
+            </select>
+            <p class="text-xs text-muted-foreground">Users and organizations created through this app belong to the selected directory.</p>
         </div>
         <div class="flex gap-2 pt-2">
             <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Create application</button>

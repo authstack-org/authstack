@@ -46,14 +46,32 @@
             <label for="role" class="text-sm font-medium">Role</label>
             <select id="role" name="role" data-bind:role
                     class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                {% if show_instance_admin_role %}
                 <option value="instance_admin" {% if let Some(r) = role %}{% if r == "instance_admin" %}selected{% endif %}{% endif %}>Instance admin</option>
+                {% endif %}
+                <option value="directory_admin" {% if let Some(r) = role %}{% if r == "directory_admin" %}selected{% endif %}{% endif %}>Directory admin</option>
                 <option value="app_admin" {% if let Some(r) = role %}{% if r == "app_admin" %}selected{% endif %}{% else %}selected{% endif %}>App admin</option>
             </select>
+        </div>
+        <div class="space-y-2" data-show="$role === 'directory_admin'">
+            <label class="text-sm font-medium">Assigned directories</label>
+            {% if directories.is_empty() %}
+            <p class="text-sm text-muted-foreground">No directories available in your scope.</p>
+            {% else %}
+            <div class="space-y-2 rounded-md border p-3">
+                {% for dir in directories %}
+                <label class="flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="directory_ids" value="{{ dir.directory_id }}" class="mt-1" {% if dir.selected %}checked{% endif %}>
+                    <span>{{ dir.label }} <code class="rounded bg-muted px-1 py-0.5 text-xs">{{ dir.directory_id }}</code></span>
+                </label>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
         <div class="space-y-2" data-show="$role === 'app_admin'">
             <label class="text-sm font-medium">Assigned applications</label>
             {% if applications.is_empty() %}
-            <p class="text-sm text-muted-foreground">No applications exist yet. Create an application first.</p>
+            <p class="text-sm text-muted-foreground">No applications exist yet in your scope.</p>
             {% else %}
             <div class="space-y-2 rounded-md border p-3">
                 {% for app in applications %}

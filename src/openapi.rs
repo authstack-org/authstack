@@ -196,7 +196,8 @@ struct TokenResponse {
 #[derive(Debug, Serialize, ToSchema)]
 struct User {
     id: String,
-    app_id: String,
+    directory_id: String,
+    scoped_application_id: Option<String>,
     name: String,
     #[schema(format = Email)]
     email: String,
@@ -211,7 +212,8 @@ struct User {
 #[derive(Debug, Serialize, ToSchema)]
 struct Organization {
     id: String,
-    app_id: String,
+    directory_id: String,
+    application_id: Option<String>,
     name: String,
     slug: String,
     org_type: OrgType,

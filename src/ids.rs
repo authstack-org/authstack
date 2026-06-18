@@ -76,6 +76,7 @@ macro_rules! define_id {
     };
 }
 
+define_id!(DirectoryId, DirectoryType, "dir");
 define_id!(ApplicationId, ApplicationType, "app");
 define_id!(UserId, UserType, "usr");
 define_id!(OrganizationId, OrganizationType, "org");
