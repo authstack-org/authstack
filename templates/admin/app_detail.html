@@ -1,59 +1,80 @@
 {% extends "admin/_layout.html" %}
 
 {% block title %}{{ app_name }} — Authstack Admin{% endblock %}
+{% block nav_dashboard %}bg-accent text-accent-foreground{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
 
-{% block nav_links %}
-<div class="nav-links">
-    <a href="/admin/dashboard">Applications</a>
-    {% if is_instance_admin %}
-    <a href="/admin/operators">Operators</a>
-    {% endif %}
-</div>
+{% block nav_operators_link %}
+{% if is_instance_admin %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endif %}
 {% endblock %}
 
-{% block nav_email %}{{ admin_email }}{% endblock %}
 {% block nav_logout %}
 <form method="POST" action="/admin/logout">
-    <button type="submit">Sign out</button>
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
 </form>
 {% endblock %}
 
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/dashboard" class="hover:text-foreground">Applications</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">{{ app_name }}</span>
+</nav>
+{% endblock %}
+
 {% block content %}
-<div class="breadcrumb"><a href="/admin/dashboard">Applications</a> / {{ app_name }}</div>
-
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-    <h1 style="margin-bottom: 0;">{{ app_name }}</h1>
-    <a href="/admin/apps/{{ app_id }}/users" class="btn btn-primary">Manage users</a>
-</div>
-
-{% if let Some(error) = error %}
-<div class="error">{{ error }}</div>
-{% endif %}
-
-<div class="card">
-    <div class="meta-grid">
-        <div class="meta-item">
-            <label>App ID</label>
-            <p><span class="badge">{{ app_id }}</span></p>
-        </div>
-        <div class="meta-item">
-            <label>Users</label>
-            <p>{{ user_count }}</p>
-        </div>
-        <div class="meta-item">
-            <label>Created</label>
-            <p>{{ created_at }}</p>
-        </div>
+<div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ app_name }}</h1>
+        <p class="text-sm text-muted-foreground">Application overview and management.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+        <a href="/admin/apps/{{ app_id }}/users" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Users</a>
+        <a href="/admin/apps/{{ app_id }}/orgs" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Organizations</a>
     </div>
 </div>
 
+{% if let Some(error) = error %}
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
+{% endif %}
+
+<div class="rounded-lg border bg-card p-6 shadow-sm">
+    <dl class="grid gap-4 sm:grid-cols-3">
+        <div>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">App ID</dt>
+            <dd class="mt-1"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ app_id }}</code></dd>
+        </div>
+        <div>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Users</dt>
+            <dd class="mt-1 text-sm font-medium">{{ user_count }}</dd>
+        </div>
+        <div>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Created</dt>
+            <dd class="mt-1 text-sm">{{ created_at }}</dd>
+        </div>
+    </dl>
+</div>
+
 {% if is_instance_admin %}
-<div class="card">
-    <h2>Danger zone</h2>
-    <p style="color: #666; font-size: 0.875rem; margin-bottom: 16px;">Deleting an application removes all of its users, organizations, and credentials.</p>
-    <form method="POST" action="/admin/apps/{{ app_id }}/delete" onsubmit="return confirm('Delete this application and all tenant data? This cannot be undone.');">
-        <button type="submit" class="btn btn-danger">Delete application</button>
-    </form>
+<div class="mt-6 rounded-lg border border-red-200 bg-card p-6 shadow-sm" data-signals='{"confirm_delete":false}'>
+    <h2 class="text-lg font-semibold text-red-700">Danger zone</h2>
+    <p class="mt-1 text-sm text-muted-foreground">Deleting an application removes all users, organizations, and credentials.</p>
+    <div class="mt-4 flex flex-wrap gap-2">
+        <button type="button" data-show="!$confirm_delete" data-on:click="$confirm_delete = true"
+                class="inline-flex h-9 items-center justify-center rounded-md border border-red-200 bg-background px-4 text-sm font-medium text-red-700 hover:bg-red-50">
+            Delete application
+        </button>
+    </div>
+    <div data-show="$confirm_delete" class="mt-4 space-y-3 rounded-md border border-red-200 bg-red-50 p-4">
+        <p class="text-sm text-red-800">This action cannot be undone. All tenant data for this application will be permanently deleted.</p>
+        <form method="POST" action="/admin/apps/{{ app_id }}/delete" class="flex flex-wrap gap-2">
+            <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700">Yes, delete application</button>
+            <button type="button" data-on:click="$confirm_delete = false" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent">Cancel</button>
+        </form>
+    </div>
 </div>
 {% endif %}
 {% endblock %}

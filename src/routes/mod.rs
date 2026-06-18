@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod admin_sse;
 pub mod auth;
 pub mod jwks;
 pub mod me;

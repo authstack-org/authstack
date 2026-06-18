@@ -85,6 +85,52 @@ struct NewAppUserTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "admin/app_orgs.html")]
+struct AppOrgsTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    app_id: String,
+    app_name: String,
+    orgs: Vec<OrgRow>,
+    flash: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/org_detail.html")]
+struct OrgDetailTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    app_id: String,
+    app_name: String,
+    org_id: String,
+    org_name: String,
+    org_slug: String,
+    org_type: String,
+    org_created_at: DateTime<Utc>,
+    members: Vec<OrgMemberDisplay>,
+    error: Option<String>,
+    flash: Option<String>,
+}
+
+struct OrgRow {
+    id: String,
+    name: String,
+    slug: String,
+    org_type: String,
+    member_count: i64,
+    created_at: DateTime<Utc>,
+}
+
+struct OrgMemberDisplay {
+    id: String,
+    user_id: String,
+    user_name: String,
+    user_email: String,
+    role: String,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Template)]
 #[template(path = "admin/operators.html")]
 struct OperatorsTemplate {
     admin_email: String,
@@ -159,6 +205,16 @@ pub fn protected_router() -> Router<AppState> {
         .route(
             "/admin/apps/{app_id}/users/new",
             get(new_app_user_page).post(create_app_user),
+        )
+        .route("/admin/apps/{app_id}/orgs", get(app_orgs))
+        .route("/admin/apps/{app_id}/orgs/{org_id}", get(org_detail))
+        .route(
+            "/admin/apps/{app_id}/orgs/{org_id}/members",
+            post(add_org_member),
+        )
+        .route(
+            "/admin/apps/{app_id}/orgs/{org_id}/members/{user_id}/remove",
+            post(remove_org_member),
         )
         .route("/admin/applications", post(create_application_json))
 }
@@ -566,6 +622,234 @@ async fn create_app_user(
         .into_response(),
         Err(e) => AppError::Internal(anyhow::anyhow!(e.to_string())).into_response(),
     }
+}
+
+async fn app_orgs(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let orgs = match admin_ops::list_orgs_for_app(&state.db, app_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(AppOrgsTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name,
+        orgs: orgs
+            .into_iter()
+            .map(|o| OrgRow {
+                id: o.id,
+                name: o.name,
+                slug: o.slug,
+                org_type: o.org_type,
+                member_count: o.member_count,
+                created_at: o.created_at,
+            })
+            .collect(),
+        flash: None,
+    })
+    .into_response()
+}
+
+async fn org_detail(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, org_id)): Path<(String, String)>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org = match admin_ops::get_org_for_app(&state.db, app_id, &org_id).await {
+        Ok(Some(o)) => o,
+        Ok(None) => return Redirect::to(&format!("/admin/apps/{}/orgs", app.id)).into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let members = match admin_ops::list_org_members(&state.db, &org_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(OrgDetailTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name,
+        org_id: org.id,
+        org_name: org.name,
+        org_slug: org.slug,
+        org_type: org.org_type,
+        org_created_at: org.created_at,
+        members: members
+            .into_iter()
+            .map(|m| OrgMemberDisplay {
+                id: m.id,
+                user_id: m.user_id,
+                user_name: m.user_name,
+                user_email: m.user_email,
+                role: m.role,
+                created_at: m.created_at,
+            })
+            .collect(),
+        error: None,
+        flash: None,
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct AddOrgMemberForm {
+    user_id: String,
+    role: Option<String>,
+}
+
+async fn add_org_member(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, org_id)): Path<(String, String)>,
+    Form(body): Form<AddOrgMemberForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org = match admin_ops::get_org_for_app(&state.db, app_id, &org_id).await {
+        Ok(Some(o)) => o,
+        Ok(None) => return Redirect::to(&format!("/admin/apps/{}/orgs", app.id)).into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let user_id = body.user_id.trim().to_string();
+    if user_id.is_empty() {
+        return render_org_detail_error(&state, &identity, &app, &org, "Select a user to add.").await;
+    }
+
+    let role = body.role.unwrap_or_else(|| "member".to_string());
+
+    match admin_ops::add_org_member(&state.db, app_id, &org_id, &user_id, &role).await {
+        Ok(()) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org_id)).into_response(),
+        Err(e) if e.to_string().contains("23505") => {
+            render_org_detail_error(
+                &state,
+                &identity,
+                &app,
+                &org,
+                "That user is already a member of this organization.",
+            )
+            .await
+        }
+        Err(e) => render_org_detail_error(&state, &identity, &app, &org, &e.to_string()).await,
+    }
+}
+
+async fn remove_org_member(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, org_id, user_id)): Path<(String, String, String)>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    match admin_ops::remove_org_member(&state.db, app_id, &org_id, &user_id).await {
+        Ok(true) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org_id)).into_response(),
+        Ok(false) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org_id)).into_response(),
+        Err(e) => {
+            let org = match admin_ops::get_org_for_app(&state.db, app_id, &org_id).await {
+                Ok(Some(o)) => o,
+                _ => return AppError::Internal(e).into_response(),
+            };
+            render_org_detail_error(&state, &identity, &app, &org, &e.to_string()).await
+        }
+    }
+}
+
+async fn render_org_detail_error(
+    state: &AppState,
+    identity: &AdminSession,
+    app: &admin_ops::ApplicationSummary,
+    org: &admin_ops::OrgDetail,
+    error: &str,
+) -> Response {
+    let members = match admin_ops::list_org_members(&state.db, &org.id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(OrgDetailTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name.clone(),
+        org_id: org.id.clone(),
+        org_name: org.name.clone(),
+        org_slug: org.slug.clone(),
+        org_type: org.org_type.clone(),
+        org_created_at: org.created_at,
+        members: members
+            .into_iter()
+            .map(|m| OrgMemberDisplay {
+                id: m.id,
+                user_id: m.user_id,
+                user_name: m.user_name,
+                user_email: m.user_email,
+                role: m.role,
+                created_at: m.created_at,
+            })
+            .collect(),
+        error: Some(error.to_string()),
+        flash: None,
+    })
+    .into_response()
 }
 
 async fn operators_page(

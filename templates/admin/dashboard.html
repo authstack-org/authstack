@@ -1,82 +1,95 @@
 {% extends "admin/_layout.html" %}
 
 {% block title %}Dashboard — Authstack Admin{% endblock %}
+{% block nav_dashboard %}bg-accent text-accent-foreground{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
 
-{% block nav_links %}
-<div class="nav-links">
-    <a href="/admin/dashboard">Applications</a>
-    {% if is_instance_admin %}
-    <a href="/admin/operators">Operators</a>
-    {% endif %}
-</div>
+{% block nav_operators_link %}
+{% if is_instance_admin %}
+<a href="/admin/operators"
+   class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
+    Operators
+</a>
+{% endif %}
 {% endblock %}
 
-{% block nav_email %}{{ admin_email }}{% endblock %}
 {% block nav_logout %}
 <form method="POST" action="/admin/logout">
-    <button type="submit">Sign out</button>
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">
+        Sign out
+    </button>
 </form>
 {% endblock %}
 
 {% block content %}
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-    <h1 style="margin-bottom: 0;">Applications</h1>
+<div class="mb-6 flex items-center justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Applications</h1>
+        <p class="text-sm text-muted-foreground">Manage tenant applications and credentials.</p>
+    </div>
     {% if is_instance_admin %}
-    <a href="/admin/apps/new" class="btn btn-primary">New application</a>
+    <a href="/admin/apps/new" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+        New application
+    </a>
     {% endif %}
 </div>
 
 {% if let Some(flash) = flash %}
-<div class="success">{{ flash }}</div>
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ flash }}</div>
 {% endif %}
 
 {% if let Some(error) = error %}
-<div class="error">{{ error }}</div>
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
 {% endif %}
 
 {% if let Some(new_app) = new_app %}
-<div class="card" style="border-color: #bbf7d0; background: #f0fdf4;">
-    <p style="font-weight: 600; margin-bottom: 12px; color: #15803d;">Application created — save these credentials now, the secret will not be shown again.</p>
-    <div class="form-group">
-        <label>App ID</label>
-        <div class="secret-box">{{ new_app.app_id }}</div>
-    </div>
-    <div class="form-group" style="margin-bottom: 0;">
-        <label>Client Secret</label>
-        <div class="secret-box">{{ new_app.client_secret }}</div>
+<div class="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+    <p class="mb-3 text-sm font-medium text-emerald-900">Application created — save these credentials now. The client secret is shown only once.</p>
+    <div class="space-y-3">
+        <div>
+            <p class="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-800/70">App ID</p>
+            <code class="block rounded-md border bg-white px-3 py-2 text-sm">{{ new_app.app_id }}</code>
+        </div>
+        <div>
+            <p class="mb-1 text-xs font-medium uppercase tracking-wide text-emerald-800/70">Client Secret</p>
+            <code class="block break-all rounded-md border bg-white px-3 py-2 text-sm">{{ new_app.client_secret }}</code>
+        </div>
     </div>
 </div>
 {% endif %}
 
-<div class="card" style="padding: 0; overflow: hidden;">
+<div class="rounded-lg border bg-card shadow-sm">
     {% if applications.is_empty() %}
-    <div class="empty">
+    <div class="p-10 text-center text-sm text-muted-foreground">
         No applications yet.
         {% if is_instance_admin %}
-        <a href="/admin/apps/new">Create one.</a>
+        <a href="/admin/apps/new" class="font-medium text-foreground underline-offset-4 hover:underline">Create one.</a>
         {% endif %}
     </div>
     {% else %}
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>App ID</th>
-                <th>Users</th>
-                <th>Created</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for app in applications %}
-            <tr class="clickable" onclick="window.location='/admin/apps/{{ app.app_id }}'">
-                <td><strong>{{ app.name }}</strong></td>
-                <td><span class="badge">{{ app.app_id }}</span></td>
-                <td>{{ app.user_count }}</td>
-                <td style="color: #666;">{{ app.created_at }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b bg-muted/50">
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Name</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">App ID</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Users</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for app in applications %}
+                <tr class="cursor-pointer border-b transition-colors hover:bg-muted/50" onclick="window.location='/admin/apps/{{ app.app_id }}'">
+                    <td class="p-4 align-middle font-medium">{{ app.name }}</td>
+                    <td class="p-4 align-middle"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ app.app_id }}</code></td>
+                    <td class="p-4 align-middle">{{ app.user_count }}</td>
+                    <td class="p-4 align-middle text-muted-foreground">{{ app.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% endif %}
 </div>
 {% endblock %}

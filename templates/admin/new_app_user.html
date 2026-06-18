@@ -1,54 +1,64 @@
 {% extends "admin/_layout.html" %}
 
 {% block title %}Add User — {{ app_name }}{% endblock %}
+{% block nav_dashboard %}bg-accent text-accent-foreground{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
 
-{% block nav_links %}
-<div class="nav-links">
-    <a href="/admin/dashboard">Applications</a>
-    {% if is_instance_admin %}
-    <a href="/admin/operators">Operators</a>
-    {% endif %}
-</div>
+{% block nav_operators_link %}
+{% if is_instance_admin %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endif %}
 {% endblock %}
 
-{% block nav_email %}{{ admin_email }}{% endblock %}
 {% block nav_logout %}
 <form method="POST" action="/admin/logout">
-    <button type="submit">Sign out</button>
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
 </form>
 {% endblock %}
 
-{% block content %}
-<div class="breadcrumb">
-    <a href="/admin/dashboard">Applications</a> /
-    <a href="/admin/apps/{{ app_id }}">{{ app_name }}</a> /
-    <a href="/admin/apps/{{ app_id }}/users">Users</a> /
-    Add
-</div>
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/dashboard" class="hover:text-foreground">Applications</a>
+    <span class="mx-1">/</span>
+    <a href="/admin/apps/{{ app_id }}" class="hover:text-foreground">{{ app_name }}</a>
+    <span class="mx-1">/</span>
+    <a href="/admin/apps/{{ app_id }}/users" class="hover:text-foreground">Users</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">Add</span>
+</nav>
+{% endblock %}
 
-<h1>Add user to {{ app_name }}</h1>
+{% block content %}
+<h1 class="mb-6 text-2xl font-semibold tracking-tight">Add user</h1>
 
 {% if let Some(error) = error %}
-<div class="error">{{ error }}</div>
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
 {% endif %}
 
-<div class="card" style="max-width: 480px;">
-    <form method="POST" action="/admin/apps/{{ app_id }}/users/new">
-        <div class="form-group">
-            <label for="name">Name</label>
-            <input type="text" id="name" name="name" value="{% if let Some(n) = name %}{{ n }}{% endif %}" required autofocus>
+<div class="max-w-lg rounded-lg border bg-card p-6 shadow-sm">
+    <form method="POST" action="/admin/apps/{{ app_id }}/users/new" class="space-y-4">
+        <div class="space-y-2">
+            <label for="name" class="text-sm font-medium">Name</label>
+            <input type="text" id="name" name="name" required autofocus
+                   value="{% if let Some(n) = name %}{{ n }}{% endif %}"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
         </div>
-        <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" value="{% if let Some(e) = email %}{{ e }}{% endif %}" required>
+        <div class="space-y-2">
+            <label for="email" class="text-sm font-medium">Email</label>
+            <input type="email" id="email" name="email" required
+                   value="{% if let Some(e) = email %}{{ e }}{% endif %}"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
         </div>
-        <div class="form-group">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" required minlength="8">
+        <div class="space-y-2">
+            <label for="password" class="text-sm font-medium">Password</label>
+            <input type="password" id="password" name="password" required minlength="8"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <p class="text-xs text-muted-foreground">Minimum 8 characters.</p>
         </div>
-        <div class="actions">
-            <button type="submit" class="btn btn-primary">Create user</button>
-            <a href="/admin/apps/{{ app_id }}/users" class="btn btn-secondary">Cancel</a>
+        <div class="flex gap-2 pt-2">
+            <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Create user</button>
+            <a href="/admin/apps/{{ app_id }}/users" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel</a>
         </div>
     </form>
 </div>

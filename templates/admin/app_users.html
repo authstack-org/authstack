@@ -1,71 +1,88 @@
 {% extends "admin/_layout.html" %}
 
 {% block title %}Users — {{ app_name }}{% endblock %}
+{% block nav_dashboard %}bg-accent text-accent-foreground{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
 
-{% block nav_links %}
-<div class="nav-links">
-    <a href="/admin/dashboard">Applications</a>
-    {% if is_instance_admin %}
-    <a href="/admin/operators">Operators</a>
-    {% endif %}
-</div>
+{% block nav_operators_link %}
+{% if is_instance_admin %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endif %}
 {% endblock %}
 
-{% block nav_email %}{{ admin_email }}{% endblock %}
 {% block nav_logout %}
 <form method="POST" action="/admin/logout">
-    <button type="submit">Sign out</button>
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
 </form>
 {% endblock %}
 
-{% block content %}
-<div class="breadcrumb">
-    <a href="/admin/dashboard">Applications</a> /
-    <a href="/admin/apps/{{ app_id }}">{{ app_name }}</a> /
-    Users
-</div>
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/dashboard" class="hover:text-foreground">Applications</a>
+    <span class="mx-1">/</span>
+    <a href="/admin/apps/{{ app_id }}" class="hover:text-foreground">{{ app_name }}</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">Users</span>
+</nav>
+{% endblock %}
 
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-    <h1 style="margin-bottom: 0;">Users</h1>
-    <a href="/admin/apps/{{ app_id }}/users/new" class="btn btn-primary">Add user</a>
+{% block content %}
+<div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Users</h1>
+        <p class="text-sm text-muted-foreground">Tenant users for {{ app_name }}.</p>
+    </div>
+    <a href="/admin/apps/{{ app_id }}/users/new" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Add user</a>
 </div>
 
 {% if let Some(flash) = flash %}
-<div class="success">{{ flash }}</div>
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ flash }}</div>
 {% endif %}
 
-<div class="card" style="padding: 0; overflow: hidden;">
-    {% if users.is_empty() %}
-    <div class="empty">No users yet. <a href="/admin/apps/{{ app_id }}/users/new">Add one.</a></div>
-    {% else %}
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Verified</th>
-                <th>User ID</th>
-                <th>Created</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for user in users %}
-            <tr>
-                <td><strong>{{ user.name }}</strong></td>
-                <td>{{ user.email }}</td>
-                <td>
-                    {% if user.email_verified %}
-                    <span class="badge badge-verified">verified</span>
-                    {% else %}
-                    <span class="badge">unverified</span>
-                    {% endif %}
-                </td>
-                <td><span class="badge">{{ user.id }}</span></td>
-                <td style="color: #666;">{{ user.created_at }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% endif %}
+<div class="mb-4" data-signals='{"q":""}'>
+    <label for="user-search" class="mb-2 block text-sm font-medium">Search users</label>
+    <input type="search" id="user-search" placeholder="Search by name or email…"
+           data-bind:q
+           data-on:input__debounce.250ms="@get('/admin/sse/apps/{{ app_id }}/users/search?q=' + encodeURIComponent($q))"
+           class="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+</div>
+
+<div class="overflow-hidden rounded-lg border bg-card shadow-sm">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b bg-muted/50">
+                    <th class="h-10 px-3 text-left font-medium text-muted-foreground">Name</th>
+                    <th class="h-10 px-3 text-left font-medium text-muted-foreground">Email</th>
+                    <th class="h-10 px-3 text-left font-medium text-muted-foreground">Verified</th>
+                    <th class="h-10 px-3 text-left font-medium text-muted-foreground">User ID</th>
+                    <th class="h-10 px-3 text-left font-medium text-muted-foreground">Created</th>
+                </tr>
+            </thead>
+            <tbody id="users-table-body">
+                {% for user in users %}
+                <tr class="border-b transition-colors hover:bg-muted/50">
+                    <td class="p-3 align-middle font-medium">{{ user.name }}</td>
+                    <td class="p-3 align-middle text-muted-foreground">{{ user.email }}</td>
+                    <td class="p-3 align-middle">
+                        {% if user.email_verified %}
+                        <span class="inline-flex items-center rounded-full border border-transparent bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">verified</span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">unverified</span>
+                        {% endif %}
+                    </td>
+                    <td class="p-3 align-middle"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ user.id }}</code></td>
+                    <td class="p-3 align-middle text-sm text-muted-foreground">{{ user.created_at }}</td>
+                </tr>
+                {% endfor %}
+                {% if users.is_empty() %}
+                <tr>
+                    <td colspan="5" class="p-8 text-center text-sm text-muted-foreground">No users yet. <a href="/admin/apps/{{ app_id }}/users/new" class="font-medium text-foreground underline-offset-4 hover:underline">Add one.</a></td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}

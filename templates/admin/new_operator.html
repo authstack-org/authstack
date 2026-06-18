@@ -1,65 +1,73 @@
 {% extends "admin/_layout.html" %}
 
 {% block title %}Add Operator — Authstack Admin{% endblock %}
-
-{% block nav_links %}
-<div class="nav-links">
-    <a href="/admin/dashboard">Applications</a>
-    <a href="/admin/operators">Operators</a>
-</div>
+{% block nav_operators_link %}
+<a href="/admin/operators" class="flex items-center rounded-md bg-accent px-3 py-2 font-medium text-accent-foreground">Operators</a>
 {% endblock %}
-
 {% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
+
 {% block nav_logout %}
 <form method="POST" action="/admin/logout">
-    <button type="submit">Sign out</button>
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
 </form>
 {% endblock %}
 
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/operators" class="hover:text-foreground">Operators</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">Add</span>
+</nav>
+{% endblock %}
+
 {% block content %}
-<div class="breadcrumb"><a href="/admin/operators">Operators</a> / Add</div>
-<h1>Add operator</h1>
+<h1 class="mb-6 text-2xl font-semibold tracking-tight">Add operator</h1>
 
 {% if let Some(error) = error %}
-<div class="error">{{ error }}</div>
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
 {% endif %}
 
-<div class="card" style="max-width: 520px;">
-    <form method="POST" action="/admin/operators/new">
-        <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" value="{% if let Some(e) = email %}{{ e }}{% endif %}" required autofocus>
+<div class="max-w-lg rounded-lg border bg-card p-6 shadow-sm"
+     data-signals='{"role":"{% if let Some(r) = role %}{{ r }}{% else %}app_admin{% endif %}"}'>
+    <form method="POST" action="/admin/operators/new" class="space-y-4">
+        <div class="space-y-2">
+            <label for="email" class="text-sm font-medium">Email</label>
+            <input type="email" id="email" name="email" required autofocus
+                   value="{% if let Some(e) = email %}{{ e }}{% endif %}"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
         </div>
-        <div class="form-group">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" required minlength="8">
+        <div class="space-y-2">
+            <label for="password" class="text-sm font-medium">Password</label>
+            <input type="password" id="password" name="password" required minlength="8"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
         </div>
-        <div class="form-group">
-            <label for="role">Role</label>
-            <select id="role" name="role">
+        <div class="space-y-2">
+            <label for="role" class="text-sm font-medium">Role</label>
+            <select id="role" name="role" data-bind:role
+                    class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                 <option value="instance_admin" {% if let Some(r) = role %}{% if r == "instance_admin" %}selected{% endif %}{% endif %}>Instance admin</option>
                 <option value="app_admin" {% if let Some(r) = role %}{% if r == "app_admin" %}selected{% endif %}{% else %}selected{% endif %}>App admin</option>
             </select>
         </div>
-        <div class="form-group">
-            <label>Assigned applications (for app admin)</label>
+        <div class="space-y-2" data-show="$role === 'app_admin'">
+            <label class="text-sm font-medium">Assigned applications</label>
             {% if applications.is_empty() %}
-            <p style="color: #666; font-size: 0.875rem;">No applications exist yet. Create an application first.</p>
+            <p class="text-sm text-muted-foreground">No applications exist yet. Create an application first.</p>
             {% else %}
-            <div class="checkbox-group">
+            <div class="space-y-2 rounded-md border p-3">
                 {% for app in applications %}
-                <div class="checkbox-row">
-                    <input type="checkbox" id="app-{{ app.app_id }}" name="app_ids" value="{{ app.app_id }}"
-                        {% if app.selected %}checked{% endif %}>
-                    <label for="app-{{ app.app_id }}">{{ app.name }} <span class="badge">{{ app.app_id }}</span></label>
-                </div>
+                <label class="flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="app_ids" value="{{ app.app_id }}" class="mt-1" {% if app.selected %}checked{% endif %}>
+                    <span>{{ app.name }} <code class="rounded bg-muted px-1 py-0.5 text-xs">{{ app.app_id }}</code></span>
+                </label>
                 {% endfor %}
             </div>
             {% endif %}
         </div>
-        <div class="actions">
-            <button type="submit" class="btn btn-primary">Create operator</button>
-            <a href="/admin/operators" class="btn btn-secondary">Cancel</a>
+        <div class="flex gap-2 pt-2">
+            <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Create operator</button>
+            <a href="/admin/operators" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel</a>
         </div>
     </form>
 </div>

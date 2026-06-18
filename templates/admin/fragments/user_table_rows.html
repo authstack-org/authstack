@@ -1,0 +1,20 @@
+{% for user in users %}
+<tr class="border-b transition-colors hover:bg-muted/50">
+    <td class="p-3 align-middle font-medium">{{ user.name }}</td>
+    <td class="p-3 align-middle text-muted-foreground">{{ user.email }}</td>
+    <td class="p-3 align-middle">
+        {% if user.email_verified %}
+        <span class="inline-flex items-center rounded-full border border-transparent bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">verified</span>
+        {% else %}
+        <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">unverified</span>
+        {% endif %}
+    </td>
+    <td class="p-3 align-middle"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ user.id }}</code></td>
+    <td class="p-3 align-middle text-sm text-muted-foreground">{{ user.created_at }}</td>
+</tr>
+{% endfor %}
+{% if users.is_empty() %}
+<tr>
+    <td colspan="5" class="p-8 text-center text-sm text-muted-foreground">No users match your search.</td>
+</tr>
+{% endif %}

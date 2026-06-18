@@ -3,7 +3,9 @@ use axum::Router;
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use axum::routing::get_service;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -91,10 +93,14 @@ async fn main() -> anyhow::Result<()> {
 
     let admin_protected = Router::new()
         .merge(routes::admin::protected_router())
+        .merge(routes::admin_sse::router())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::middleware::admin_auth::authenticate_admin,
         ));
+
+    let static_service = ServeDir::new("static");
+    let static_router = Router::new().nest_service("/static", get_service(static_service));
 
     let app = Router::new()
         .merge(protected)
@@ -102,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::me::router())
         .merge(routes::admin::open_router())
         .merge(admin_protected)
+        .merge(static_router)
         .merge(routes::jwks::router())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

@@ -1,34 +1,40 @@
-{% extends "admin/_layout.html" %}
-
-{% block title %}Sign in — Authstack Admin{% endblock %}
-
-{% block nav %}
-<nav>
-    <span class="brand">Authstack Admin</span>
-    <div class="nav-right"></div>
-</nav>
-{% endblock %}
-
-{% block content %}
-<div style="max-width: 400px; margin: 60px auto;">
-    <h1 style="text-align: center; margin-bottom: 8px;">Sign in</h1>
-    <p style="text-align: center; color: #666; font-size: 0.875rem; margin-bottom: 24px;">Admin access only</p>
-    <div class="card">
-        {% if let Some(error) = error %}
-        <div class="error">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/admin/login">
-            <div class="form-group">
-                <label for="email">Email</label>
-                <input type="email" id="email" name="email" required autofocus
-                       value="{% if let Some(e) = email %}{{ e }}{% endif %}">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in — Authstack Admin</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body class="min-h-screen bg-background">
+    <div class="flex min-h-screen items-center justify-center p-4">
+        <div class="w-full max-w-md rounded-lg border bg-card p-6 shadow-sm">
+            <div class="mb-6 space-y-1 text-center">
+                <h1 class="text-2xl font-semibold tracking-tight">Authstack Admin</h1>
+                <p class="text-sm text-muted-foreground">Sign in with your operator account.</p>
             </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">Sign in</button>
-        </form>
+
+            {% if let Some(error) = error %}
+            <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/admin/login" class="space-y-4">
+                <div class="space-y-2">
+                    <label for="email" class="text-sm font-medium">Email</label>
+                    <input type="email" id="email" name="email" required autofocus
+                           value="{% if let Some(e) = email %}{{ e }}{% endif %}"
+                           class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                </div>
+                <div class="space-y-2">
+                    <label for="password" class="text-sm font-medium">Password</label>
+                    <input type="password" id="password" name="password" required
+                           class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                </div>
+                <button type="submit" class="inline-flex h-9 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+                    Sign in
+                </button>
+            </form>
+        </div>
     </div>
-</div>
-{% endblock %}
+</body>
+</html>

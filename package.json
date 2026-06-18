@@ -1,0 +1,11 @@
+{
+  "name": "authstack-admin-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "npx @tailwindcss/cli -i static/css/admin.input.css -o static/css/admin.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.8",
+    "tailwindcss": "^4.1.8"
+  }
+}

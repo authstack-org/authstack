@@ -1,4 +1,8 @@
-.PHONY: up down clean test test-clean logs db-shell keys bootstrap
+.PHONY: up down clean test test-clean logs db-shell keys bootstrap css
+
+# Build admin Tailwind/shadcn CSS (requires Node.js)
+css:
+	npm install && npm run build:css
 
 # ── local dev ─────────────────────────────────────────────────────────────────
 

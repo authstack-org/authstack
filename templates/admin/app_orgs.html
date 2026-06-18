@@ -1,0 +1,70 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}Organizations — {{ app_name }}{% endblock %}
+{% block nav_dashboard %}bg-accent text-accent-foreground{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
+
+{% block nav_operators_link %}
+{% if is_instance_admin %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endif %}
+{% endblock %}
+
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
+</form>
+{% endblock %}
+
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/dashboard" class="hover:text-foreground">Applications</a>
+    <span class="mx-1">/</span>
+    <a href="/admin/apps/{{ app_id }}" class="hover:text-foreground">{{ app_name }}</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">Organizations</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-semibold tracking-tight">Organizations</h1>
+    <p class="text-sm text-muted-foreground">Teams and personal orgs for {{ app_name }}.</p>
+</div>
+
+{% if let Some(flash) = flash %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ flash }}</div>
+{% endif %}
+
+<div class="overflow-hidden rounded-lg border bg-card shadow-sm">
+    {% if orgs.is_empty() %}
+    <div class="p-10 text-center text-sm text-muted-foreground">No organizations yet. Users receive a personal org when they sign up.</div>
+    {% else %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b bg-muted/50">
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Name</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Slug</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Type</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Members</th>
+                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for org in orgs %}
+                <tr class="cursor-pointer border-b transition-colors hover:bg-muted/50" onclick="window.location='/admin/apps/{{ app_id }}/orgs/{{ org.id }}'">
+                    <td class="p-4 align-middle font-medium">{{ org.name }}</td>
+                    <td class="p-4 align-middle text-muted-foreground">{{ org.slug }}</td>
+                    <td class="p-4 align-middle"><span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">{{ org.org_type }}</span></td>
+                    <td class="p-4 align-middle">{{ org.member_count }}</td>
+                    <td class="p-4 align-middle text-muted-foreground">{{ org.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
