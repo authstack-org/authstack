@@ -1,0 +1,71 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}Users — {{ app_name }}{% endblock %}
+
+{% block nav_links %}
+<div class="nav-links">
+    <a href="/admin/dashboard">Applications</a>
+    {% if is_instance_admin %}
+    <a href="/admin/operators">Operators</a>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit">Sign out</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/admin/dashboard">Applications</a> /
+    <a href="/admin/apps/{{ app_id }}">{{ app_name }}</a> /
+    Users
+</div>
+
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <h1 style="margin-bottom: 0;">Users</h1>
+    <a href="/admin/apps/{{ app_id }}/users/new" class="btn btn-primary">Add user</a>
+</div>
+
+{% if let Some(flash) = flash %}
+<div class="success">{{ flash }}</div>
+{% endif %}
+
+<div class="card" style="padding: 0; overflow: hidden;">
+    {% if users.is_empty() %}
+    <div class="empty">No users yet. <a href="/admin/apps/{{ app_id }}/users/new">Add one.</a></div>
+    {% else %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Verified</th>
+                <th>User ID</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td><strong>{{ user.name }}</strong></td>
+                <td>{{ user.email }}</td>
+                <td>
+                    {% if user.email_verified %}
+                    <span class="badge badge-verified">verified</span>
+                    {% else %}
+                    <span class="badge">unverified</span>
+                    {% endif %}
+                </td>
+                <td><span class="badge">{{ user.id }}</span></td>
+                <td style="color: #666;">{{ user.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endblock %}

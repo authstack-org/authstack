@@ -1,0 +1,55 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}Add User — {{ app_name }}{% endblock %}
+
+{% block nav_links %}
+<div class="nav-links">
+    <a href="/admin/dashboard">Applications</a>
+    {% if is_instance_admin %}
+    <a href="/admin/operators">Operators</a>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit">Sign out</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/admin/dashboard">Applications</a> /
+    <a href="/admin/apps/{{ app_id }}">{{ app_name }}</a> /
+    <a href="/admin/apps/{{ app_id }}/users">Users</a> /
+    Add
+</div>
+
+<h1>Add user to {{ app_name }}</h1>
+
+{% if let Some(error) = error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width: 480px;">
+    <form method="POST" action="/admin/apps/{{ app_id }}/users/new">
+        <div class="form-group">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" value="{% if let Some(n) = name %}{{ n }}{% endif %}" required autofocus>
+        </div>
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" value="{% if let Some(e) = email %}{{ e }}{% endif %}" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required minlength="8">
+        </div>
+        <div class="actions">
+            <button type="submit" class="btn btn-primary">Create user</button>
+            <a href="/admin/apps/{{ app_id }}/users" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

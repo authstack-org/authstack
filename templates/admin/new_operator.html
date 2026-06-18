@@ -1,0 +1,66 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}Add Operator — Authstack Admin{% endblock %}
+
+{% block nav_links %}
+<div class="nav-links">
+    <a href="/admin/dashboard">Applications</a>
+    <a href="/admin/operators">Operators</a>
+</div>
+{% endblock %}
+
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit">Sign out</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="breadcrumb"><a href="/admin/operators">Operators</a> / Add</div>
+<h1>Add operator</h1>
+
+{% if let Some(error) = error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width: 520px;">
+    <form method="POST" action="/admin/operators/new">
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" value="{% if let Some(e) = email %}{{ e }}{% endif %}" required autofocus>
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required minlength="8">
+        </div>
+        <div class="form-group">
+            <label for="role">Role</label>
+            <select id="role" name="role">
+                <option value="instance_admin" {% if let Some(r) = role %}{% if r == "instance_admin" %}selected{% endif %}{% endif %}>Instance admin</option>
+                <option value="app_admin" {% if let Some(r) = role %}{% if r == "app_admin" %}selected{% endif %}{% else %}selected{% endif %}>App admin</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Assigned applications (for app admin)</label>
+            {% if applications.is_empty() %}
+            <p style="color: #666; font-size: 0.875rem;">No applications exist yet. Create an application first.</p>
+            {% else %}
+            <div class="checkbox-group">
+                {% for app in applications %}
+                <div class="checkbox-row">
+                    <input type="checkbox" id="app-{{ app.app_id }}" name="app_ids" value="{{ app.app_id }}"
+                        {% if app.selected %}checked{% endif %}>
+                    <label for="app-{{ app.app_id }}">{{ app.name }} <span class="badge">{{ app.app_id }}</span></label>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        <div class="actions">
+            <button type="submit" class="btn btn-primary">Create operator</button>
+            <a href="/admin/operators" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

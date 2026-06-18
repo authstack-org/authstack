@@ -2,6 +2,13 @@
 
 {% block title %}New Application — Authstack Admin{% endblock %}
 
+{% block nav_links %}
+<div class="nav-links">
+    <a href="/admin/dashboard">Applications</a>
+    <a href="/admin/operators">Operators</a>
+</div>
+{% endblock %}
+
 {% block nav_email %}{{ admin_email }}{% endblock %}
 {% block nav_logout %}
 <form method="POST" action="/admin/logout">
@@ -10,25 +17,20 @@
 {% endblock %}
 
 {% block content %}
-<div style="max-width: 480px;">
-    <a href="/admin/dashboard" style="font-size: 0.875rem; color: #666; text-decoration: none; display: inline-block; margin-bottom: 20px;">← Back</a>
-    <h1>New Application</h1>
-    <div class="card">
-        {% if let Some(error) = error %}
-        <div class="error">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/admin/apps">
-            <div class="form-group">
-                <label for="name">Application name</label>
-                <input type="text" id="name" name="name" required autofocus
-                       placeholder="e.g. My App"
-                       value="{% if let Some(n) = name %}{{ n }}{% endif %}">
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-                <button type="submit" class="btn btn-primary">Create</button>
-                <a href="/admin/dashboard" class="btn btn-secondary">Cancel</a>
-            </div>
-        </form>
-    </div>
+<div class="breadcrumb"><a href="/admin/dashboard">Applications</a> / New</div>
+<h1>New application</h1>
+
+{% if let Some(error) = error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width: 480px;">
+    <form method="POST" action="/admin/apps">
+        <div class="form-group">
+            <label for="name">Application name</label>
+            <input type="text" id="name" name="name" value="{% if let Some(n) = name %}{{ n }}{% endif %}" required autofocus>
+        </div>
+        <button type="submit" class="btn btn-primary">Create application</button>
+    </form>
 </div>
 {% endblock %}

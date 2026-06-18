@@ -2,6 +2,15 @@
 
 {% block title %}Dashboard — Authstack Admin{% endblock %}
 
+{% block nav_links %}
+<div class="nav-links">
+    <a href="/admin/dashboard">Applications</a>
+    {% if is_instance_admin %}
+    <a href="/admin/operators">Operators</a>
+    {% endif %}
+</div>
+{% endblock %}
+
 {% block nav_email %}{{ admin_email }}{% endblock %}
 {% block nav_logout %}
 <form method="POST" action="/admin/logout">
@@ -12,11 +21,17 @@
 {% block content %}
 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
     <h1 style="margin-bottom: 0;">Applications</h1>
+    {% if is_instance_admin %}
     <a href="/admin/apps/new" class="btn btn-primary">New application</a>
+    {% endif %}
 </div>
 
 {% if let Some(flash) = flash %}
 <div class="success">{{ flash }}</div>
+{% endif %}
+
+{% if let Some(error) = error %}
+<div class="error">{{ error }}</div>
 {% endif %}
 
 {% if let Some(new_app) = new_app %}
@@ -35,21 +50,28 @@
 
 <div class="card" style="padding: 0; overflow: hidden;">
     {% if applications.is_empty() %}
-    <div class="empty">No applications yet. <a href="/admin/apps/new">Create one.</a></div>
+    <div class="empty">
+        No applications yet.
+        {% if is_instance_admin %}
+        <a href="/admin/apps/new">Create one.</a>
+        {% endif %}
+    </div>
     {% else %}
     <table>
         <thead>
             <tr>
                 <th>Name</th>
                 <th>App ID</th>
+                <th>Users</th>
                 <th>Created</th>
             </tr>
         </thead>
         <tbody>
             {% for app in applications %}
-            <tr>
+            <tr class="clickable" onclick="window.location='/admin/apps/{{ app.app_id }}'">
                 <td><strong>{{ app.name }}</strong></td>
                 <td><span class="badge">{{ app.app_id }}</span></td>
+                <td>{{ app.user_count }}</td>
                 <td style="color: #666;">{{ app.created_at }}</td>
             </tr>
             {% endfor %}

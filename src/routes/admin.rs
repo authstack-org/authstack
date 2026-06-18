@@ -1,21 +1,22 @@
 use askama::Template;
 use axum::{
     Json, Router,
-    extract::{Extension, Form, State},
+    extract::{Extension, Form, Path, State},
     http::header,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
     AppState,
     error::{AppError, Result},
     ids::ApplicationId,
-    middleware::admin_auth::AdminIdentity,
-    services::{admin_auth, password},
+    services::admin_auth::AdminSession,
+    models::admin_role::AdminRole,
+    services::{admin_ops, auth as auth_service, password},
 };
 
 // ── Template structs ──────────────────────────────────────────────────────────
@@ -31,23 +32,83 @@ struct LoginTemplate {
 #[template(path = "admin/dashboard.html")]
 struct DashboardTemplate {
     admin_email: String,
+    is_instance_admin: bool,
     applications: Vec<ApplicationRow>,
     new_app: Option<NewAppCredentials>,
     flash: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Template)]
 #[template(path = "admin/new_app.html")]
 struct NewAppTemplate {
     admin_email: String,
+    is_instance_admin: bool,
     error: Option<String>,
     name: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/app_detail.html")]
+struct AppDetailTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    app_id: String,
+    app_name: String,
+    created_at: DateTime<Utc>,
+    user_count: i64,
+    flash: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/app_users.html")]
+struct AppUsersTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    app_id: String,
+    app_name: String,
+    users: Vec<TenantUserRow>,
+    flash: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/new_app_user.html")]
+struct NewAppUserTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    app_id: String,
+    app_name: String,
+    error: Option<String>,
+    name: Option<String>,
+    email: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/operators.html")]
+struct OperatorsTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    operators: Vec<OperatorRow>,
+    flash: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/new_operator.html")]
+struct NewOperatorTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    applications: Vec<AppPickerRow>,
+    error: Option<String>,
+    email: Option<String>,
+    role: Option<String>,
 }
 
 struct ApplicationRow {
     name: String,
     app_id: String,
     created_at: DateTime<Utc>,
+    user_count: i64,
 }
 
 struct NewAppCredentials {
@@ -55,22 +116,50 @@ struct NewAppCredentials {
     client_secret: String,
 }
 
+struct TenantUserRow {
+    id: String,
+    name: String,
+    email: String,
+    email_verified: bool,
+    created_at: DateTime<Utc>,
+}
+
+struct OperatorRow {
+    id: String,
+    email: String,
+    role_label: String,
+    apps_label: String,
+    created_at: DateTime<Utc>,
+}
+
+struct AppPickerRow {
+    app_id: String,
+    name: String,
+    selected: bool,
+}
+
 // ── Routers ───────────────────────────────────────────────────────────────────
 
-/// Open routes: no admin JWT required.
 pub fn open_router() -> Router<AppState> {
     Router::new()
         .route("/admin/login", get(login_page).post(process_login))
         .route("/admin/logout", post(logout))
 }
 
-/// Protected routes: admin JWT cookie required (middleware applied in main.rs).
 pub fn protected_router() -> Router<AppState> {
     Router::new()
         .route("/admin/dashboard", get(dashboard))
+        .route("/admin/operators", get(operators_page))
+        .route("/admin/operators/new", get(new_operator_page).post(create_operator))
         .route("/admin/apps/new", get(new_app_page))
         .route("/admin/apps", post(create_app))
-        // JSON API for programmatic access (e.g. CI, scripts)
+        .route("/admin/apps/{app_id}", get(app_detail))
+        .route("/admin/apps/{app_id}/delete", post(delete_app))
+        .route("/admin/apps/{app_id}/users", get(app_users))
+        .route(
+            "/admin/apps/{app_id}/users/new",
+            get(new_app_user_page).post(create_app_user),
+        )
         .route("/admin/applications", post(create_application_json))
 }
 
@@ -90,7 +179,9 @@ struct LoginForm {
 }
 
 async fn process_login(State(state): State<AppState>, Form(body): Form<LoginForm>) -> Response {
-    let user = match admin_auth::login_admin(&state.db, &body.email, &body.password).await {
+    let user = match crate::services::admin_auth::login_admin(&state.db, &body.email, &body.password)
+        .await
+    {
         Ok(Some(u)) => u,
         Ok(None) => {
             return render(LoginTemplate {
@@ -137,42 +228,50 @@ async fn logout() -> impl IntoResponse {
 
 async fn dashboard(
     State(state): State<AppState>,
-    Extension(identity): Extension<AdminIdentity>,
+    Extension(identity): Extension<AdminSession>,
 ) -> Response {
-    let rows: Vec<(String, String, DateTime<Utc>)> = match sqlx::query_as(
-        "SELECT name, id, created_at FROM application ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
+    let apps = match admin_ops::list_applications_for_admin(&state.db, identity.role, identity.admin_id)
+        .await
     {
-        Ok(r) => r,
+        Ok(a) => a,
         Err(_) => return AppError::Internal(anyhow::anyhow!("db error")).into_response(),
     };
 
-    let applications = rows
+    let applications = apps
         .into_iter()
-        .map(|(name, app_id, created_at)| ApplicationRow {
-            name,
-            app_id,
-            created_at,
+        .map(|a| ApplicationRow {
+            name: a.name,
+            app_id: a.id.to_string(),
+            created_at: a.created_at,
+            user_count: a.user_count,
         })
         .collect();
 
+    let (admin_email, is_instance_admin) = nav_context(&identity);
+
     render(DashboardTemplate {
-        admin_email: identity.email,
+        admin_email,
+        is_instance_admin,
         applications,
         new_app: None,
         flash: None,
+        error: None,
     })
     .into_response()
 }
 
-async fn new_app_page(Extension(identity): Extension<AdminIdentity>) -> impl IntoResponse {
+async fn new_app_page(Extension(identity): Extension<AdminSession>) -> Response {
+    if !identity.is_instance_admin() {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
     render(NewAppTemplate {
-        admin_email: identity.email,
+        admin_email: identity.email.clone(),
+        is_instance_admin: true,
         error: None,
         name: None,
     })
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -182,13 +281,18 @@ struct CreateAppForm {
 
 async fn create_app(
     State(state): State<AppState>,
-    Extension(identity): Extension<AdminIdentity>,
+    Extension(identity): Extension<AdminSession>,
     Form(body): Form<CreateAppForm>,
 ) -> Response {
+    if !identity.is_instance_admin() {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
     let name = body.name.trim().to_string();
     if name.is_empty() {
         return render(NewAppTemplate {
-            admin_email: identity.email,
+            admin_email: identity.email.clone(),
+            is_instance_admin: true,
             error: Some("Application name is required.".to_string()),
             name: Some(name),
         })
@@ -205,57 +309,450 @@ async fn create_app(
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    let result =
-        sqlx::query("INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)")
-            .bind(id)
-            .bind(&secret_hash)
-            .bind(&name)
-            .execute(&state.db)
-            .await;
-
-    if let Err(e) = result {
+    if let Err(e) = sqlx::query("INSERT INTO application (id, client_secret_hash, name) VALUES ($1, $2, $3)")
+        .bind(id)
+        .bind(&secret_hash)
+        .bind(&name)
+        .execute(&state.db)
+        .await
+    {
         return AppError::Database(e).into_response();
     }
 
-    // Re-fetch all apps to show dashboard with credentials
-    let rows: Vec<(String, String, DateTime<Utc>)> = match sqlx::query_as(
-        "SELECT name, id, created_at FROM application ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
+    let apps = match admin_ops::list_applications_for_admin(&state.db, identity.role, identity.admin_id)
+        .await
     {
-        Ok(r) => r,
-        Err(e) => return AppError::Database(e).into_response(),
+        Ok(a) => a,
+        Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    let applications = rows
+    let applications = apps
         .into_iter()
-        .map(|(n, app_id, created_at)| ApplicationRow {
-            name: n,
-            app_id,
-            created_at,
+        .map(|a| ApplicationRow {
+            name: a.name,
+            app_id: a.id.to_string(),
+            created_at: a.created_at,
+            user_count: a.user_count,
         })
         .collect();
 
+    let (admin_email, is_instance_admin) = nav_context(&identity);
+
     render(DashboardTemplate {
-        admin_email: identity.email,
+        admin_email,
+        is_instance_admin,
         applications,
         new_app: Some(NewAppCredentials {
             app_id: id.to_string(),
             client_secret,
         }),
         flash: None,
+        error: None,
     })
     .into_response()
 }
 
-// JSON API: create application — for programmatic / CI use
+async fn app_detail(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(AppDetailTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name,
+        created_at: app.created_at,
+        user_count: app.user_count,
+        flash: None,
+        error: None,
+    })
+    .into_response()
+}
+
+async fn delete_app(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    if !identity.is_instance_admin() {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    match admin_ops::delete_application(&state.db, app_id).await {
+        Ok(true) => Redirect::to("/admin/dashboard").into_response(),
+        Ok(false) => render(AppDetailTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: true,
+            app_id: app.id.to_string(),
+            app_name: app.name,
+            created_at: app.created_at,
+            user_count: app.user_count,
+            flash: None,
+            error: Some("Application could not be deleted.".to_string()),
+        })
+        .into_response(),
+        Err(e) => AppError::Internal(e).into_response(),
+    }
+}
+
+async fn app_users(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let users = match admin_ops::list_tenant_users(&state.db, app_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(AppUsersTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name,
+        users: users
+            .into_iter()
+            .map(|u| TenantUserRow {
+                id: u.id,
+                name: u.name,
+                email: u.email,
+                email_verified: u.email_verified,
+                created_at: u.created_at,
+            })
+            .collect(),
+        flash: None,
+    })
+    .into_response()
+}
+
+async fn new_app_user_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(NewAppUserTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name,
+        error: None,
+        name: None,
+        email: None,
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateAppUserForm {
+    name: String,
+    email: String,
+    password: String,
+}
+
+async fn create_app_user(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+    Form(body): Form<CreateAppUserForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let name = body.name.trim().to_string();
+    let email = body.email.trim().to_string();
+
+    if name.is_empty() || email.is_empty() {
+        return render(NewAppUserTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: identity.is_instance_admin(),
+            app_id: app.id.to_string(),
+            app_name: app.name,
+            error: Some("Name and email are required.".to_string()),
+            name: Some(name),
+            email: Some(email),
+        })
+        .into_response();
+    }
+
+    if body.password.len() < 8 {
+        return render(NewAppUserTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: identity.is_instance_admin(),
+            app_id: app.id.to_string(),
+            app_name: app.name,
+            error: Some("Password must be at least 8 characters.".to_string()),
+            name: Some(name),
+            email: Some(email),
+        })
+        .into_response();
+    }
+
+    match auth_service::signup(&state.db, app_id, &name, &email, &body.password).await {
+        Ok(_) => Redirect::to(&format!("/admin/apps/{}/users", app.id)).into_response(),
+        Err(AppError::Conflict(_)) => render(NewAppUserTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: identity.is_instance_admin(),
+            app_id: app.id.to_string(),
+            app_name: app.name,
+            error: Some("A user with that email already exists in this application.".to_string()),
+            name: Some(name),
+            email: Some(email),
+        })
+        .into_response(),
+        Err(e) => AppError::Internal(anyhow::anyhow!(e.to_string())).into_response(),
+    }
+}
+
+async fn operators_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+) -> Response {
+    if !identity.is_instance_admin() {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let operators = match admin_ops::list_operators(&state.db).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(OperatorsTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: true,
+        operators: operators
+            .into_iter()
+            .map(|op| OperatorRow {
+                id: op.id.to_string(),
+                email: op.email,
+                role_label: role_label(op.role),
+                apps_label: if op.role == AdminRole::InstanceAdmin {
+                    "All applications".to_string()
+                } else if op.granted_app_ids.is_empty() {
+                    "No applications".to_string()
+                } else {
+                    op.granted_app_ids
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                },
+                created_at: op.created_at,
+            })
+            .collect(),
+        flash: None,
+    })
+    .into_response()
+}
+
+async fn new_operator_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+) -> Response {
+    if !identity.is_instance_admin() {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let apps = match admin_ops::list_all_applications_for_picker(&state.db).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(NewOperatorTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: true,
+        applications: apps
+            .into_iter()
+            .map(|(id, name)| AppPickerRow {
+                app_id: id.to_string(),
+                name,
+                selected: false,
+            })
+            .collect(),
+        error: None,
+        email: None,
+        role: Some("app_admin".to_string()),
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateOperatorForm {
+    email: String,
+    password: String,
+    role: String,
+    #[serde(default, deserialize_with = "deserialize_form_string_vec")]
+    app_ids: Vec<String>,
+}
+
+fn deserialize_form_string_vec<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+
+    match OneOrMany::deserialize(deserializer)? {
+        OneOrMany::One(value) => Ok(vec![value]),
+        OneOrMany::Many(values) => Ok(values),
+    }
+}
+
+async fn create_operator(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Form(body): Form<CreateOperatorForm>,
+) -> Response {
+    if !identity.is_instance_admin() {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let apps = match admin_ops::list_all_applications_for_picker(&state.db).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let picker: Vec<AppPickerRow> = apps
+        .iter()
+        .map(|(id, name)| AppPickerRow {
+            app_id: id.to_string(),
+            name: name.clone(),
+            selected: body.app_ids.iter().any(|s| s == &id.to_string()),
+        })
+        .collect();
+
+    let role = match body.role.parse::<AdminRole>() {
+        Ok(r) => r,
+        Err(_) => {
+            return render(NewOperatorTemplate {
+                admin_email: identity.email.clone(),
+                is_instance_admin: true,
+                applications: picker,
+                error: Some("Invalid operator role.".to_string()),
+                email: Some(body.email),
+                role: Some(body.role),
+            })
+            .into_response();
+        }
+    };
+
+    let mut app_ids = Vec::new();
+    for raw in &body.app_ids {
+        match raw.parse::<ApplicationId>() {
+            Ok(id) => app_ids.push(id),
+            Err(_) => {
+                return render(NewOperatorTemplate {
+                    admin_email: identity.email.clone(),
+                    is_instance_admin: true,
+                    applications: picker,
+                    error: Some(format!("Invalid application id: {raw}")),
+                    email: Some(body.email),
+                    role: Some(body.role),
+                })
+                .into_response();
+            }
+        }
+    }
+
+    match admin_ops::create_operator(&state.db, &body.email, &body.password, role, &app_ids).await {
+        Ok(_) => Redirect::to("/admin/operators").into_response(),
+        Err(e) if e.to_string().contains("unique") || e.to_string().contains("23505") => {
+            render(NewOperatorTemplate {
+                admin_email: identity.email.clone(),
+                is_instance_admin: true,
+                applications: picker,
+                error: Some("An operator with that email already exists.".to_string()),
+                email: Some(body.email),
+                role: Some(body.role),
+            })
+            .into_response()
+        }
+        Err(e) => render(NewOperatorTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: true,
+            applications: picker,
+            error: Some(e.to_string()),
+            email: Some(body.email),
+            role: Some(body.role),
+        })
+        .into_response(),
+    }
+}
+
 #[derive(Deserialize)]
 struct CreateApplicationJsonRequest {
     name: String,
 }
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 struct CreateApplicationJsonResponse {
     id: ApplicationId,
     client_secret: String,
@@ -264,9 +761,13 @@ struct CreateApplicationJsonResponse {
 
 async fn create_application_json(
     State(state): State<AppState>,
-    Extension(_identity): Extension<AdminIdentity>,
+    Extension(identity): Extension<AdminSession>,
     Json(body): Json<CreateApplicationJsonRequest>,
 ) -> Result<(axum::http::StatusCode, Json<CreateApplicationJsonResponse>)> {
+    if !identity.is_instance_admin() {
+        return Err(AppError::Forbidden);
+    }
+
     let name = body.name.trim().to_string();
     if name.is_empty() {
         return Err(AppError::Validation("name is required".to_string()));
@@ -296,7 +797,23 @@ async fn create_application_json(
     ))
 }
 
-// ── Helper ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn nav_context(identity: &AdminSession) -> (String, bool) {
+    (identity.email.clone(), identity.is_instance_admin())
+}
+
+fn role_label(role: AdminRole) -> String {
+    match role {
+        AdminRole::InstanceAdmin => "Instance admin".to_string(),
+        AdminRole::AppAdmin => "App admin".to_string(),
+    }
+}
+
+fn parse_app_id(raw: &str) -> std::result::Result<ApplicationId, Response> {
+    raw.parse::<ApplicationId>()
+        .map_err(|_| Redirect::to("/admin/dashboard").into_response())
+}
 
 fn render<T: Template>(tmpl: T) -> Html<String> {
     match tmpl.render() {

@@ -5,6 +5,8 @@
 // credentials. The bootstrap admin user is created by the API entrypoint on
 // startup and reused here to test the full login / protected-route / logout flow.
 
+import { ctx } from './helpers/ctx'
+
 const BASE_URL       = process.env.API_URL             ?? 'http://localhost:8080'
 const ADMIN_EMAIL    = process.env.AUTHSTACK_ADMIN_EMAIL   ?? 'test-admin@authstack.local'
 const ADMIN_PASSWORD = process.env.AUTHSTACK_ADMIN_PASSWORD ?? 'test-admin-password-123'
@@ -229,5 +231,103 @@ describe('Admin — POST /admin/logout', () => {
     // invalidate it server-side (stateless). The test confirms the logout
     // response cleared the cookie — the client would have discarded it.
     expect([200, 303]).toContain(res.status)
+  })
+})
+
+// ── Operators & scoped access ─────────────────────────────────────────────────
+
+describe('Admin — operators and app scoping', () => {
+  it('instance admin can view the operators page', async () => {
+    const cookie = await loginAdmin()
+    const res = await fetch(`${BASE_URL}/admin/operators`, {
+      headers:  { Cookie: cookie },
+      redirect: 'manual',
+    })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('Operators')
+    expect(html).toContain('Add operator')
+  })
+
+  it('instance admin can create an app admin operator', async () => {
+    const cookie = await loginAdmin()
+    const email = `app-admin-${Date.now()}@authstack.local`
+    const password = 'app-admin-password-123'
+    const appId = ctx.clientId
+    if (!appId) throw new Error('missing clientId in test context')
+
+    const res = await fetch(`${BASE_URL}/admin/operators/new`, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookie,
+      },
+      body: new URLSearchParams({
+        email,
+        password,
+        role: 'app_admin',
+        app_ids: appId,
+      }).toString(),
+      redirect: 'manual',
+    })
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe('/admin/operators')
+
+    const loginRes = await fetch(`${BASE_URL}/admin/login`, {
+      method:   'POST',
+      headers:  { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:     new URLSearchParams({ email, password }).toString(),
+      redirect: 'manual',
+    })
+    expect(loginRes.status).toBe(303)
+    const appAdminCookie = loginRes.headers.get('set-cookie')!.split(';')[0]
+
+    const dashRes = await fetch(`${BASE_URL}/admin/dashboard`, {
+      headers:  { Cookie: appAdminCookie },
+      redirect: 'manual',
+    })
+    expect(dashRes.status).toBe(200)
+    const dashHtml = await dashRes.text()
+    expect(dashHtml).toContain(appId)
+    expect(dashHtml).not.toContain('New application')
+
+    const newAppRes = await fetch(`${BASE_URL}/admin/apps/new`, {
+      headers:  { Cookie: appAdminCookie },
+      redirect: 'manual',
+    })
+    expect(newAppRes.status).toBe(303)
+    expect(newAppRes.headers.get('location')).toBe('/admin/dashboard')
+  })
+
+  it('operator can provision a tenant user for an assigned app', async () => {
+    const cookie = await loginAdmin()
+    const appId = ctx.clientId
+    if (!appId) throw new Error('missing clientId in test context')
+
+    const email = `provisioned-${Date.now()}@authstack.local`
+    const res = await fetch(`${BASE_URL}/admin/apps/${appId}/users/new`, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookie,
+      },
+      body: new URLSearchParams({
+        name:  'Provisioned User',
+        email,
+        password: 'provisioned-password-123',
+      }).toString(),
+      redirect: 'manual',
+    })
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe(`/admin/apps/${appId}/users`)
+
+    const listRes = await fetch(`${BASE_URL}/admin/apps/${appId}/users`, {
+      headers:  { Cookie: cookie },
+      redirect: 'manual',
+    })
+    expect(listRes.status).toBe(200)
+    const html = await listRes.text()
+    expect(html).toContain(email)
+    expect(html).toContain('Provisioned User')
   })
 })

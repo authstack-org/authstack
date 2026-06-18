@@ -4,13 +4,12 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 
-use crate::{AppState, error::AppError, ids::AdminUserId};
-
-#[derive(Clone, Debug)]
-pub struct AdminIdentity {
-    pub admin_id: AdminUserId,
-    pub email: String,
-}
+use crate::{
+    AppState,
+    error::AppError,
+    ids::AdminUserId,
+    services::admin_auth,
+};
 
 pub async fn authenticate_admin(
     State(state): State<AppState>,
@@ -41,10 +40,17 @@ pub async fn authenticate_admin(
                         .into_response();
                 }
             };
-            req.extensions_mut().insert(AdminIdentity {
-                admin_id,
-                email: data.claims.email,
-            });
+
+            let session = match admin_auth::load_session(&state.db, admin_id, data.claims.email).await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("failed to load admin session: {e:?}");
+                    return Redirect::to("/admin/login").into_response();
+                }
+            };
+
+            req.extensions_mut().insert(session);
             next.run(req).await
         }
         Err(_) => Redirect::to("/admin/login").into_response(),

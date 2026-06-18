@@ -164,9 +164,15 @@ After that, open `http://localhost:8080/admin/login` in a browser to manage appl
 | `GET`  | `/admin/login` | — | Login page |
 | `POST` | `/admin/login` | — | Submit login form → sets session cookie |
 | `POST` | `/admin/logout` | Cookie | Clear session |
-| `GET`  | `/admin/dashboard` | Cookie | List all applications |
-| `GET`  | `/admin/apps/new` | Cookie | New application form |
-| `POST` | `/admin/apps` | Cookie | Create application (form submit) |
+| `GET`  | `/admin/dashboard` | Cookie | List applications (scoped by operator role) |
+| `GET`  | `/admin/operators` | Cookie | List instance operators (instance admin only) |
+| `GET/POST` | `/admin/operators/new` | Cookie | Add operator (instance admin only) |
+| `GET`  | `/admin/apps/new` | Cookie | New application form (instance admin only) |
+| `POST` | `/admin/apps` | Cookie | Create application (instance admin only) |
+| `GET`  | `/admin/apps/{id}` | Cookie | Application detail |
+| `POST` | `/admin/apps/{id}/delete` | Cookie | Delete application (instance admin only) |
+| `GET`  | `/admin/apps/{id}/users` | Cookie | List tenant users |
+| `GET/POST` | `/admin/apps/{id}/users/new` | Cookie | Provision tenant user |
 
 #### JSON API (for scripts / CI)
 

@@ -1,0 +1,51 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}Operators — Authstack Admin{% endblock %}
+
+{% block nav_links %}
+<div class="nav-links">
+    <a href="/admin/dashboard">Applications</a>
+    <a href="/admin/operators">Operators</a>
+</div>
+{% endblock %}
+
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit">Sign out</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <h1 style="margin-bottom: 0;">Operators</h1>
+    <a href="/admin/operators/new" class="btn btn-primary">Add operator</a>
+</div>
+
+{% if let Some(flash) = flash %}
+<div class="success">{{ flash }}</div>
+{% endif %}
+
+<div class="card" style="padding: 0; overflow: hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Applications</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for op in operators %}
+            <tr>
+                <td><strong>{{ op.email }}</strong></td>
+                <td>{{ op.role_label }}</td>
+                <td style="color: #666; font-size: 0.8rem;">{{ op.apps_label }}</td>
+                <td style="color: #666;">{{ op.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
