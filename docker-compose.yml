@@ -28,6 +28,7 @@ services:
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
       AUTHSTACK_BOOTSTRAP_EMAIL: ${AUTHSTACK_BOOTSTRAP_EMAIL:-test-admin@authstack.local}
       AUTHSTACK_BOOTSTRAP_PASSWORD: ${AUTHSTACK_BOOTSTRAP_PASSWORD:-test-admin-password-123}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       RUST_LOG: info
     ports:
       - "8080:8080"

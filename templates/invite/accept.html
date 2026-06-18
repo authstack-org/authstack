@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accept invite — {{ app_name }}</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body class="min-h-screen bg-background">
+    <div class="flex min-h-screen items-center justify-center p-4">
+        <div class="w-full max-w-md rounded-lg border bg-card p-6 shadow-sm">
+            {% if unavailable %}
+            <div class="space-y-2 text-center">
+                <h1 class="text-2xl font-semibold tracking-tight">{{ organization_name }}</h1>
+                {% if let Some(error) = error %}
+                <p class="text-sm text-muted-foreground">{{ error }}</p>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="mb-6 space-y-1 text-center">
+                <h1 class="text-2xl font-semibold tracking-tight">Join {{ organization_name }}</h1>
+                <p class="text-sm text-muted-foreground">You've been invited to <strong>{{ app_name }}</strong>.</p>
+            </div>
+
+            {% if let Some(error) = error %}
+            <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/invite/{{ token }}/accept" class="space-y-4">
+                <div class="space-y-2">
+                    <label for="email" class="text-sm font-medium">Email</label>
+                    <input type="email" id="email" value="{{ email }}" readonly
+                           class="flex h-9 w-full rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
+                </div>
+                <div class="space-y-2">
+                    <label for="name" class="text-sm font-medium">Your name</label>
+                    <input type="text" id="name" name="name" autocomplete="name"
+                           value="{% if let Some(n) = preset_name %}{{ n }}{% endif %}"
+                           class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <p class="text-xs text-muted-foreground">Required if you don't already have an account.</p>
+                </div>
+                <div class="space-y-2">
+                    <label for="password" class="text-sm font-medium">Password</label>
+                    <input type="password" id="password" name="password" required minlength="8" autocomplete="new-password"
+                           class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <p class="text-xs text-muted-foreground">Minimum 8 characters. Use your existing password if you already have an account.</p>
+                </div>
+                <button type="submit" class="inline-flex h-9 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+                    Accept invite
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

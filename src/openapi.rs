@@ -30,6 +30,7 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         (name = "Users", description = "Application-scoped users."),
         (name = "Organizations", description = "Application-scoped organizations."),
         (name = "Members", description = "Organization membership."),
+        (name = "Invites", description = "Organization invite links."),
         (name = "JWKS", description = "JWT verification keys.")
     ),
     paths(
@@ -54,15 +55,22 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         members_list,
         members_add,
         members_remove,
+        invites_list,
+        invites_create,
+        invites_accept,
         jwks
     ),
     components(schemas(
         AddMemberRequest,
+        AcceptInviteRequest,
+        AcceptInviteResponse,
         CreateApplicationRequest,
         CreateApplicationResponse,
         CreateAppForm,
+        CreateInviteRequest,
         CreateOrgRequest,
         ErrorResponse,
+        InviteResponse,
         Jwk,
         JwksResponse,
         LoginForm,
@@ -497,6 +505,74 @@ fn members_add() {}
     responses((status = 200, description = "Member removed", body = OkResponse))
 )]
 fn members_remove() {}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+struct CreateInviteRequest {
+    #[schema(format = Email)]
+    email: String,
+    role: Option<String>,
+    name: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct InviteResponse {
+    id: String,
+    token: String,
+    invite_url: String,
+    #[schema(format = Email)]
+    email: String,
+    organization_id: String,
+    role: String,
+    expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+struct AcceptInviteRequest {
+    name: Option<String>,
+    password: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct AcceptInviteResponse {
+    id: String,
+    #[schema(format = Email)]
+    email: String,
+    name: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/orgs/{org_id}/invites",
+    tag = "Invites",
+    summary = "List pending organization invites",
+    security(("appBasicAuth" = [])),
+    params(("org_id" = String, Path, description = "Organization ID")),
+    responses((status = 200, description = "Pending invites", body = Vec<InviteResponse>))
+)]
+fn invites_list() {}
+
+#[utoipa::path(
+    post,
+    path = "/orgs/{org_id}/invites",
+    tag = "Invites",
+    summary = "Create an organization invite link",
+    security(("appBasicAuth" = [])),
+    params(("org_id" = String, Path, description = "Organization ID")),
+    request_body = CreateInviteRequest,
+    responses((status = 200, description = "Invite created", body = InviteResponse))
+)]
+fn invites_create() {}
+
+#[utoipa::path(
+    post,
+    path = "/invites/{token}/accept",
+    tag = "Invites",
+    summary = "Accept an invite and set a password",
+    params(("token" = String, Path, description = "Invite token from the invite URL")),
+    request_body = AcceptInviteRequest,
+    responses((status = 200, description = "Invite accepted", body = AcceptInviteResponse))
+)]
+fn invites_accept() {}
 
 #[utoipa::path(
     get,

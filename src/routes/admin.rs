@@ -13,10 +13,10 @@ use uuid::Uuid;
 use crate::{
     AppState,
     error::{AppError, Result},
-    ids::ApplicationId,
+    ids::{ApplicationId, OrganizationId},
     services::admin_auth::AdminSession,
     models::admin_role::AdminRole,
-    services::{admin_ops, auth as auth_service, password},
+    services::{admin_ops, auth as auth_service, invites, password},
 };
 
 // ── Template structs ──────────────────────────────────────────────────────────
@@ -69,7 +69,24 @@ struct AppUsersTemplate {
     app_id: String,
     app_name: String,
     users: Vec<TenantUserRow>,
+    pending_invites: Vec<AppInviteDisplay>,
+    new_invite_url: Option<String>,
     flash: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/invite_app_user.html")]
+struct InviteAppUserTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    app_id: String,
+    app_name: String,
+    organizations: Vec<OrgSelectRow>,
+    error: Option<String>,
+    name: Option<String>,
+    email: Option<String>,
+    org_id: Option<String>,
+    role: Option<String>,
 }
 
 #[derive(Template)]
@@ -96,6 +113,18 @@ struct AppOrgsTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "admin/new_team_org.html")]
+struct NewTeamOrgTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    app_id: String,
+    app_name: String,
+    error: Option<String>,
+    name: Option<String>,
+    slug: Option<String>,
+}
+
+#[derive(Template)]
 #[template(path = "admin/org_detail.html")]
 struct OrgDetailTemplate {
     admin_email: String,
@@ -108,6 +137,8 @@ struct OrgDetailTemplate {
     org_type: String,
     org_created_at: DateTime<Utc>,
     members: Vec<OrgMemberDisplay>,
+    pending_invites: Vec<InviteDisplay>,
+    new_invite_url: Option<String>,
     error: Option<String>,
     flash: Option<String>,
 }
@@ -128,6 +159,28 @@ struct OrgMemberDisplay {
     user_email: String,
     role: String,
     created_at: DateTime<Utc>,
+}
+
+struct InviteDisplay {
+    email: String,
+    role: String,
+    invite_url: String,
+    expires_at: DateTime<Utc>,
+}
+
+struct AppInviteDisplay {
+    email: String,
+    role: String,
+    invite_url: String,
+    expires_at: DateTime<Utc>,
+    org_id: String,
+    org_name: String,
+}
+
+struct OrgSelectRow {
+    org_id: String,
+    label: String,
+    selected: bool,
 }
 
 #[derive(Template)]
@@ -206,7 +259,15 @@ pub fn protected_router() -> Router<AppState> {
             "/admin/apps/{app_id}/users/new",
             get(new_app_user_page).post(create_app_user),
         )
+        .route(
+            "/admin/apps/{app_id}/users/invite",
+            get(invite_app_user_page).post(create_app_user_invite),
+        )
         .route("/admin/apps/{app_id}/orgs", get(app_orgs))
+        .route(
+            "/admin/apps/{app_id}/orgs/new",
+            get(new_team_org_page).post(create_team_org),
+        )
         .route("/admin/apps/{app_id}/orgs/{org_id}", get(org_detail))
         .route(
             "/admin/apps/{app_id}/orgs/{org_id}/members",
@@ -215,6 +276,10 @@ pub fn protected_router() -> Router<AppState> {
         .route(
             "/admin/apps/{app_id}/orgs/{org_id}/members/{user_id}/remove",
             post(remove_org_member),
+        )
+        .route(
+            "/admin/apps/{app_id}/orgs/{org_id}/invites",
+            post(create_org_invite),
         )
         .route("/admin/applications", post(create_application_json))
 }
@@ -501,11 +566,35 @@ async fn app_users(
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
+    render_app_users_page(
+        &state,
+        &identity,
+        &app,
+        users,
+        None,
+        None,
+    )
+    .await
+}
+
+async fn render_app_users_page(
+    state: &AppState,
+    identity: &AdminSession,
+    app: &admin_ops::ApplicationSummary,
+    users: Vec<admin_ops::TenantUserRow>,
+    flash: Option<String>,
+    new_invite_url: Option<String>,
+) -> Response {
+    let pending = match invites::list_pending_invites_for_app(&state.db, app.id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
     render(AppUsersTemplate {
         admin_email: identity.email.clone(),
         is_instance_admin: identity.is_instance_admin(),
         app_id: app.id.to_string(),
-        app_name: app.name,
+        app_name: app.name.clone(),
         users: users
             .into_iter()
             .map(|u| TenantUserRow {
@@ -516,9 +605,185 @@ async fn app_users(
                 created_at: u.created_at,
             })
             .collect(),
-        flash: None,
+        pending_invites: pending
+            .into_iter()
+            .map(|inv| AppInviteDisplay {
+                email: inv.email,
+                role: inv.role,
+                invite_url: invites::invite_url(&state.config.public_base_url, &inv.token),
+                expires_at: inv.expires_at,
+                org_id: inv.organization_id.to_string(),
+                org_name: inv.organization_name,
+            })
+            .collect(),
+        new_invite_url,
+        flash,
     })
     .into_response()
+}
+
+fn team_org_select_rows(
+    orgs: &[admin_ops::OrgSummary],
+    selected_org_id: Option<&str>,
+) -> Vec<OrgSelectRow> {
+    let team_orgs: Vec<_> = orgs.iter().filter(|o| o.org_type == "team").collect();
+    let default_org = selected_org_id
+        .filter(|id| team_orgs.iter().any(|o| o.id == *id))
+        .map(str::to_string)
+        .or_else(|| team_orgs.first().map(|o| o.id.clone()));
+
+    team_orgs
+        .into_iter()
+        .map(|o| OrgSelectRow {
+            org_id: o.id.clone(),
+            label: format!("{} ({})", o.name, o.slug),
+            selected: default_org.as_deref() == Some(o.id.as_str()),
+        })
+        .collect()
+}
+
+async fn invite_app_user_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let orgs = match admin_ops::list_orgs_for_app(&state.db, app_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(InviteAppUserTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name,
+        organizations: team_org_select_rows(&orgs, None),
+        error: None,
+        name: None,
+        email: None,
+        org_id: None,
+        role: Some("member".to_string()),
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateAppUserInviteForm {
+    email: String,
+    name: Option<String>,
+    org_id: String,
+    role: Option<String>,
+}
+
+async fn create_app_user_invite(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+    Form(body): Form<CreateAppUserInviteForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let orgs = match admin_ops::list_orgs_for_app(&state.db, app_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org_id_str = body.org_id.trim();
+    let organization_id: OrganizationId = match org_id_str.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return render(InviteAppUserTemplate {
+                admin_email: identity.email.clone(),
+                is_instance_admin: identity.is_instance_admin(),
+                app_id: app.id.to_string(),
+                app_name: app.name.clone(),
+                organizations: team_org_select_rows(&orgs, Some(org_id_str)),
+                error: Some("Select a valid organization.".to_string()),
+                name: body.name,
+                email: Some(body.email),
+                org_id: Some(org_id_str.to_string()),
+                role: body.role,
+            })
+            .into_response();
+        }
+    };
+
+    let invite = match invites::create_invite(
+        &state.db,
+        invites::CreateInviteInput {
+            app_id,
+            organization_id,
+            email: &body.email,
+            role: body.role.as_deref().unwrap_or("member"),
+            name: body.name.as_deref(),
+            expiry_secs: state.config.invite_expiry_secs,
+        },
+    )
+    .await
+    {
+        Ok(inv) => inv,
+        Err(e) => {
+            return render(InviteAppUserTemplate {
+                admin_email: identity.email.clone(),
+                is_instance_admin: identity.is_instance_admin(),
+                app_id: app.id.to_string(),
+                app_name: app.name.clone(),
+                organizations: team_org_select_rows(&orgs, Some(org_id_str)),
+                error: Some(e.to_string()),
+                name: body.name,
+                email: Some(body.email),
+                org_id: Some(org_id_str.to_string()),
+                role: body.role,
+            })
+            .into_response();
+        }
+    };
+
+    let users = match admin_ops::list_tenant_users(&state.db, app_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let invite_url = invites::invite_url(&state.config.public_base_url, &invite.token);
+
+    render_app_users_page(
+        &state,
+        &identity,
+        &app,
+        users,
+        Some(format!(
+            "Invite created for {}. Share this link (email is not sent automatically):",
+            invite.email
+        )),
+        Some(invite_url),
+    )
+    .await
 }
 
 async fn new_app_user_page(
@@ -669,6 +934,91 @@ async fn app_orgs(
     .into_response()
 }
 
+async fn new_team_org_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(NewTeamOrgTemplate {
+        admin_email: identity.email.clone(),
+        is_instance_admin: identity.is_instance_admin(),
+        app_id: app.id.to_string(),
+        app_name: app.name,
+        error: None,
+        name: None,
+        slug: None,
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateTeamOrgForm {
+    name: String,
+    slug: String,
+}
+
+async fn create_team_org(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+    Form(body): Form<CreateTeamOrgForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let name = body.name.trim().to_string();
+    let slug = body.slug.trim().to_string();
+
+    match admin_ops::create_team_org(&state.db, app_id, &name, &slug).await {
+        Ok(org) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org.id)).into_response(),
+        Err(e) if e.to_string().contains("23505") => render(NewTeamOrgTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: identity.is_instance_admin(),
+            app_id: app.id.to_string(),
+            app_name: app.name,
+            error: Some("An organization with that slug already exists in this application.".to_string()),
+            name: Some(name),
+            slug: Some(slug),
+        })
+        .into_response(),
+        Err(e) => render(NewTeamOrgTemplate {
+            admin_email: identity.email.clone(),
+            is_instance_admin: identity.is_instance_admin(),
+            app_id: app.id.to_string(),
+            app_name: app.name,
+            error: Some(e.to_string()),
+            name: Some(name),
+            slug: Some(slug),
+        })
+        .into_response(),
+    }
+}
+
 async fn org_detail(
     State(state): State<AppState>,
     Extension(identity): Extension<AdminSession>,
@@ -699,15 +1049,48 @@ async fn org_detail(
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
+    build_org_detail_page(
+        &state,
+        &identity,
+        &app,
+        &org,
+        members,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+async fn build_org_detail_page(
+    state: &AppState,
+    identity: &AdminSession,
+    app: &admin_ops::ApplicationSummary,
+    org: &admin_ops::OrgDetail,
+    members: Vec<admin_ops::OrgMemberRow>,
+    error: Option<String>,
+    flash: Option<String>,
+    new_invite_url: Option<String>,
+) -> Response {
+    let org_id: OrganizationId = match org.id.parse() {
+        Ok(id) => id,
+        Err(e) => return AppError::Internal(e.into()).into_response(),
+    };
+
+    let pending = match invites::list_pending_invites(&state.db, app.id, org_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
     render(OrgDetailTemplate {
         admin_email: identity.email.clone(),
         is_instance_admin: identity.is_instance_admin(),
         app_id: app.id.to_string(),
-        app_name: app.name,
-        org_id: org.id,
-        org_name: org.name,
-        org_slug: org.slug,
-        org_type: org.org_type,
+        app_name: app.name.clone(),
+        org_id: org.id.clone(),
+        org_name: org.name.clone(),
+        org_slug: org.slug.clone(),
+        org_type: org.org_type.clone(),
         org_created_at: org.created_at,
         members: members
             .into_iter()
@@ -720,10 +1103,108 @@ async fn org_detail(
                 created_at: m.created_at,
             })
             .collect(),
-        error: None,
-        flash: None,
+        pending_invites: pending
+            .into_iter()
+            .map(|inv| InviteDisplay {
+                email: inv.email,
+                role: inv.role,
+                invite_url: invites::invite_url(&state.config.public_base_url, &inv.token),
+                expires_at: inv.expires_at,
+            })
+            .collect(),
+        new_invite_url,
+        error,
+        flash,
     })
     .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateOrgInviteForm {
+    email: String,
+    role: Option<String>,
+    name: Option<String>,
+}
+
+async fn create_org_invite(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, org_id)): Path<(String, String)>,
+    Form(body): Form<CreateOrgInviteForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !identity.can_access_app(app_id) {
+        return Redirect::to("/admin/dashboard").into_response();
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org = match admin_ops::get_org_for_app(&state.db, app_id, &org_id).await {
+        Ok(Some(o)) => o,
+        Ok(None) => return Redirect::to(&format!("/admin/apps/{}/orgs", app.id)).into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let organization_id: OrganizationId = match org_id.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return render_org_detail_error(
+                &state,
+                &identity,
+                &app,
+                &org,
+                "Invalid organization id.",
+            )
+            .await;
+        }
+    };
+
+    let invite = match invites::create_invite(
+        &state.db,
+        invites::CreateInviteInput {
+            app_id,
+            organization_id,
+            email: &body.email,
+            role: body.role.as_deref().unwrap_or("member"),
+            name: body.name.as_deref(),
+            expiry_secs: state.config.invite_expiry_secs,
+        },
+    )
+    .await
+    {
+        Ok(inv) => inv,
+        Err(e) => {
+            return render_org_detail_error(&state, &identity, &app, &org, &e.to_string()).await;
+        }
+    };
+
+    let invite_url = invites::invite_url(&state.config.public_base_url, &invite.token);
+    let members = match admin_ops::list_org_members(&state.db, &org_id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    build_org_detail_page(
+        &state,
+        &identity,
+        &app,
+        &org,
+        members,
+        None,
+        Some(format!(
+            "Invite created for {}. Share this link (email is not sent automatically):",
+            invite.email
+        )),
+        Some(invite_url),
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -825,31 +1306,17 @@ async fn render_org_detail_error(
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
-    render(OrgDetailTemplate {
-        admin_email: identity.email.clone(),
-        is_instance_admin: identity.is_instance_admin(),
-        app_id: app.id.to_string(),
-        app_name: app.name.clone(),
-        org_id: org.id.clone(),
-        org_name: org.name.clone(),
-        org_slug: org.slug.clone(),
-        org_type: org.org_type.clone(),
-        org_created_at: org.created_at,
-        members: members
-            .into_iter()
-            .map(|m| OrgMemberDisplay {
-                id: m.id,
-                user_id: m.user_id,
-                user_name: m.user_name,
-                user_email: m.user_email,
-                role: m.role,
-                created_at: m.created_at,
-            })
-            .collect(),
-        error: Some(error.to_string()),
-        flash: None,
-    })
-    .into_response()
+    build_org_detail_page(
+        state,
+        identity,
+        app,
+        org,
+        members,
+        Some(error.to_string()),
+        None,
+        None,
+    )
+    .await
 }
 
 async fn operators_page(

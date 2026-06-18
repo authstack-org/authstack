@@ -86,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::users::router())
         .merge(routes::orgs::router())
         .merge(routes::members::router())
+        .merge(routes::invites::app_router())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::middleware::app_auth::authenticate_app,
@@ -108,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::me::router())
         .merge(routes::admin::open_router())
         .merge(admin_protected)
+        .merge(routes::invites::public_router())
         .merge(static_router)
         .merge(routes::jwks::router())
         .layer(CorsLayer::permissive())

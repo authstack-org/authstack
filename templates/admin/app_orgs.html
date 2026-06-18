@@ -28,9 +28,15 @@
 {% endblock %}
 
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-semibold tracking-tight">Organizations</h1>
-    <p class="text-sm text-muted-foreground">Teams and personal orgs for {{ app_name }}.</p>
+<div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Organizations</h1>
+        <p class="text-sm text-muted-foreground">Personal orgs (one per user) and team orgs (shared workspaces).</p>
+    </div>
+    <a href="/admin/apps/{{ app_id }}/orgs/new"
+       class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+        New team organization
+    </a>
 </div>
 
 {% if let Some(flash) = flash %}
@@ -39,7 +45,10 @@
 
 <div class="overflow-hidden rounded-lg border bg-card shadow-sm">
     {% if orgs.is_empty() %}
-    <div class="p-10 text-center text-sm text-muted-foreground">No organizations yet. Users receive a personal org when they sign up.</div>
+    <div class="p-10 text-center text-sm text-muted-foreground">
+        <p>No organizations yet. Users receive a personal org when they sign up.</p>
+        <p class="mt-2">Create a <a href="/admin/apps/{{ app_id }}/orgs/new" class="font-medium text-foreground underline-offset-4 hover:underline">team organization</a> to invite collaborators.</p>
+    </div>
     {% else %}
     <div class="overflow-x-auto">
         <table class="w-full text-sm">

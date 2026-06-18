@@ -2,6 +2,21 @@ import { api } from './helpers/client'
 import { ctx } from './helpers/seed'
 
 describe('Members', () => {
+  it('rejects adding a member to a personal organization', async () => {
+    const { status: listStatus, body: orgs } = await api.get<
+      Array<{ id: string; org_type: string }>
+    >('/orgs')
+    expect(listStatus).toBe(200)
+    const personal = orgs.find((o) => o.org_type === 'personal')
+    expect(personal).toBeTruthy()
+
+    const { status } = await api.post(`/orgs/${personal!.id}/members`, {
+      user_id: ctx.userId,
+      role: 'member',
+    })
+    expect(status).toBe(422)
+  })
+
   it('lists members of the team org — empty initially', async () => {
     const { status, body } = await api.get<Array<{ user_id: string }>>(`/orgs/${ctx.orgId}/members`)
     expect(status).toBe(200)

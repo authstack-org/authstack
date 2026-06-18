@@ -83,3 +83,4 @@ define_id!(MemberId, MemberType, "mbr");
 define_id!(AccountId, AccountType, "acct");
 define_id!(RefreshSessionId, RefreshSessionType, "rsess");
 define_id!(AdminUserId, AdminUserType, "adm");
+define_id!(InviteId, InviteType, "inv");

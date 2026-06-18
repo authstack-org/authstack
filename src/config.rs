@@ -11,6 +11,9 @@ pub struct Config {
     pub access_token_expiry_secs: u64,
     pub refresh_token_expiry_secs: u64,
     pub port: u16,
+    /// Base URL for invite links (no trailing slash), e.g. https://auth.example.com
+    pub public_base_url: String,
+    pub invite_expiry_secs: u64,
 }
 
 impl Config {
@@ -23,6 +26,10 @@ impl Config {
             access_token_expiry_secs: optional("ACCESS_TOKEN_EXPIRY_SECS", 900),
             refresh_token_expiry_secs: optional("REFRESH_TOKEN_EXPIRY_SECS", 2_592_000),
             port: optional("PORT", 8080),
+            public_base_url: optional_str("PUBLIC_BASE_URL", "http://localhost:8080")
+                .trim_end_matches('/')
+                .to_string(),
+            invite_expiry_secs: optional("INVITE_EXPIRY_SECS", 604_800),
         })
     }
 }

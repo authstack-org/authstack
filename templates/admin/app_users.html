@@ -33,11 +33,43 @@
         <h1 class="text-2xl font-semibold tracking-tight">Users</h1>
         <p class="text-sm text-muted-foreground">Tenant users for {{ app_name }}.</p>
     </div>
-    <a href="/admin/apps/{{ app_id }}/users/new" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Add user</a>
+    <div class="flex flex-wrap gap-2">
+        <a href="/admin/apps/{{ app_id }}/users/invite" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Invite user</a>
+        <a href="/admin/apps/{{ app_id }}/users/new" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Add user</a>
+    </div>
 </div>
 
 {% if let Some(flash) = flash %}
-<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ flash }}</div>
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+    <p>{{ flash }}</p>
+    {% if let Some(url) = new_invite_url %}
+    <code class="mt-2 block break-all rounded-md border bg-white px-3 py-2 text-xs text-emerald-900">{{ url }}</code>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if !pending_invites.is_empty() %}
+<div class="mb-6 overflow-hidden rounded-lg border bg-card shadow-sm">
+    <div class="border-b px-4 py-3">
+        <h2 class="font-semibold">Pending invites</h2>
+        <p class="text-sm text-muted-foreground">Share these links manually — email is not sent automatically.</p>
+    </div>
+    <div class="divide-y">
+        {% for invite in pending_invites %}
+        <div class="space-y-2 p-4 text-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <span class="font-medium">{{ invite.email }}</span>
+                    <span class="text-muted-foreground"> → {{ invite.org_name }}</span>
+                </div>
+                <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium">{{ invite.role }}</span>
+            </div>
+            <code class="block break-all rounded bg-muted px-2 py-1 text-xs">{{ invite.invite_url }}</code>
+            <p class="text-xs text-muted-foreground">Expires {{ invite.expires_at }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
 {% endif %}
 
 <div class="mb-4" data-signals='{"q":""}'>
@@ -78,7 +110,12 @@
                 {% endfor %}
                 {% if users.is_empty() %}
                 <tr>
-                    <td colspan="5" class="p-8 text-center text-sm text-muted-foreground">No users yet. <a href="/admin/apps/{{ app_id }}/users/new" class="font-medium text-foreground underline-offset-4 hover:underline">Add one.</a></td>
+                    <td colspan="5" class="p-8 text-center text-sm text-muted-foreground">
+                        No users yet.
+                        <a href="/admin/apps/{{ app_id }}/users/invite" class="font-medium text-foreground underline-offset-4 hover:underline">Invite one</a>
+                        or
+                        <a href="/admin/apps/{{ app_id }}/users/new" class="font-medium text-foreground underline-offset-4 hover:underline">add one</a>.
+                    </td>
                 </tr>
                 {% endif %}
             </tbody>

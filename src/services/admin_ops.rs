@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
-use crate::ids::{AdminUserId, ApplicationId};
+use crate::ids::{AdminUserId, ApplicationId, OrganizationId};
 use crate::models::admin_role::AdminRole;
 use crate::models::admin_user::AdminUser;
 use crate::services::password;
@@ -194,6 +194,42 @@ pub async fn list_orgs_for_app(db: &PgPool, app_id: ApplicationId) -> Result<Vec
         .collect())
 }
 
+pub async fn create_team_org(
+    db: &PgPool,
+    app_id: ApplicationId,
+    name: &str,
+    slug: &str,
+) -> Result<OrgDetail> {
+    let name = name.trim();
+    let slug = slug.trim();
+    if name.is_empty() {
+        anyhow::bail!("organization name is required");
+    }
+    if slug.is_empty() {
+        anyhow::bail!("organization slug is required");
+    }
+
+    let row: (String, String, String, String, DateTime<Utc>) = sqlx::query_as(
+        r#"INSERT INTO organization (id, app_id, name, slug, org_type)
+           VALUES ($1, $2, $3, $4, 'team')
+           RETURNING id, name, slug, org_type::text, created_at"#,
+    )
+    .bind(OrganizationId::new())
+    .bind(app_id)
+    .bind(name)
+    .bind(slug)
+    .fetch_one(db)
+    .await?;
+
+    Ok(OrgDetail {
+        id: row.0,
+        name: row.1,
+        slug: row.2,
+        org_type: row.3,
+        created_at: row.4,
+    })
+}
+
 pub async fn get_org_for_app(
     db: &PgPool,
     app_id: ApplicationId,
@@ -251,8 +287,12 @@ pub async fn add_org_member(
     role: &str,
 ) -> Result<()> {
     let org = get_org_for_app(db, app_id, org_id).await?;
-    if org.is_none() {
+    let Some(org) = org else {
         anyhow::bail!("organization not found");
+    };
+
+    if org.org_type != "team" {
+        anyhow::bail!("members can only be added to team organizations");
     }
 
     let user_exists: Option<String> = sqlx::query_scalar(

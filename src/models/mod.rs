@@ -1,6 +1,7 @@
 pub mod account;
 pub mod admin_role;
 pub mod admin_user;
+pub mod app_invite;
 pub mod application;
 pub mod member;
 pub mod organization;

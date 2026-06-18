@@ -330,4 +330,110 @@ describe('Admin — operators and app scoping', () => {
     expect(html).toContain(email)
     expect(html).toContain('Provisioned User')
   })
+
+  it('operator can create a team organization from the admin UI', async () => {
+    const cookie = await loginAdmin()
+    const appId = ctx.clientId
+    if (!appId) throw new Error('missing clientId in test context')
+
+    const slug = `admin-team-${Date.now()}`
+    const res = await fetch(`${BASE_URL}/admin/apps/${appId}/orgs/new`, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookie,
+      },
+      body: new URLSearchParams({
+        name: 'Admin UI Team',
+        slug,
+      }).toString(),
+      redirect: 'manual',
+    })
+    expect(res.status).toBe(303)
+    const location = res.headers.get('location')
+    expect(location).toMatch(new RegExp(`^/admin/apps/${appId}/orgs/org_`))
+
+    const detailRes = await fetch(`${BASE_URL}${location}`, {
+      headers:  { Cookie: cookie },
+      redirect: 'manual',
+    })
+    expect(detailRes.status).toBe(200)
+    const html = await detailRes.text()
+    expect(html).toContain('Admin UI Team')
+    expect(html).toContain(slug)
+    expect(html).toContain('Invite by email')
+  })
+
+  it('personal organization detail hides invite and add member sections', async () => {
+    const cookie = await loginAdmin()
+    const appId = ctx.clientId
+    const appSecret = ctx.clientSecret
+    if (!appId || !appSecret) throw new Error('missing app credentials in test context')
+
+    const orgRes = await fetch(`${BASE_URL}/orgs`, {
+      headers: {
+        Authorization:
+          'Basic ' + Buffer.from(`${appId}:${appSecret}`).toString('base64'),
+      },
+    })
+    expect(orgRes.status).toBe(200)
+    const orgs = (await orgRes.json()) as Array<{ id: string; org_type: string }>
+    const personal = orgs.find((o) => o.org_type === 'personal')
+    expect(personal).toBeTruthy()
+
+    const detailRes = await fetch(`${BASE_URL}/admin/apps/${appId}/orgs/${personal!.id}`, {
+      headers:  { Cookie: cookie },
+      redirect: 'manual',
+    })
+    expect(detailRes.status).toBe(200)
+    const html = await detailRes.text()
+    expect(html).toContain('personal')
+    expect(html).not.toContain('Invite by email')
+    expect(html).not.toContain('Add member</h2>')
+    expect(html).not.toContain('Collaboration')
+  })
+
+  it('operator can create an invite link from the users page', async () => {
+    const cookie = await loginAdmin()
+    const appId = ctx.clientId
+    const appSecret = ctx.clientSecret
+    if (!appId || !appSecret) throw new Error('missing app credentials in test context')
+
+    const orgRes = await fetch(`${BASE_URL}/orgs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Basic ' + Buffer.from(`${appId}:${appSecret}`).toString('base64'),
+      },
+      body: JSON.stringify({
+        name: 'Admin UI Invite Org',
+        slug: `admin-ui-invite-${Date.now()}`,
+      }),
+    })
+    expect(orgRes.status).toBe(200)
+    const org = (await orgRes.json()) as { id: string }
+
+    const email = `invited-${Date.now()}@authstack.local`
+    const res = await fetch(`${BASE_URL}/admin/apps/${appId}/users/invite`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookie,
+      },
+      body: new URLSearchParams({
+        email,
+        name: 'Invited User',
+        org_id: org.id,
+        role: 'member',
+      }).toString(),
+      redirect: 'manual',
+    })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('Invite created')
+    expect(html).toContain(email)
+    expect(html).toContain('/invite/')
+    expect(html).toContain('Pending invites')
+  })
 })

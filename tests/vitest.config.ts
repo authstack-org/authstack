@@ -8,6 +8,7 @@ const FILE_ORDER = [
   'src/users.test.ts',
   'src/orgs.test.ts',
   'src/members.test.ts',
+  'src/invites.test.ts',
 ]
 
 class OrderedSequencer {
