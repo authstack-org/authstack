@@ -20,7 +20,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y ca-certificates libssl3 curl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/authstack /app/authstack
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/authstack"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["serve"]

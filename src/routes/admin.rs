@@ -2,7 +2,7 @@ use askama::Template;
 use axum::{
     Json, Router,
     extract::{Extension, Form, State},
-    http::{HeaderMap, header},
+    http::header,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     error::{AppError, Result},
-    ids::{AdminUserId, ApplicationId},
+    ids::ApplicationId,
     middleware::admin_auth::AdminIdentity,
     services::{admin_auth, password},
 };
@@ -62,7 +62,6 @@ pub fn open_router() -> Router<AppState> {
     Router::new()
         .route("/admin/login", get(login_page).post(process_login))
         .route("/admin/logout", post(logout))
-        .route("/admin/users", post(create_admin_user))
 }
 
 /// Protected routes: admin JWT cookie required (middleware applied in main.rs).
@@ -132,49 +131,6 @@ async fn process_login(State(state): State<AppState>, Form(body): Form<LoginForm
 async fn logout() -> impl IntoResponse {
     let clear = "admin_token=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0".to_string();
     ([(header::SET_COOKIE, clear)], Redirect::to("/admin/login"))
-}
-
-// Bootstrap: create first admin user via X-Admin-Key
-#[derive(Deserialize)]
-struct CreateAdminUserRequest {
-    email: String,
-    password: String,
-}
-
-#[derive(Serialize)]
-struct CreateAdminUserResponse {
-    id: AdminUserId,
-    email: String,
-}
-
-async fn create_admin_user(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<CreateAdminUserRequest>,
-) -> Result<Json<CreateAdminUserResponse>> {
-    let provided_key = headers
-        .get("X-Admin-Key")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if provided_key != state.config.admin_key {
-        return Err(AppError::Unauthorized("invalid admin key".to_string()));
-    }
-
-    let user = admin_auth::create_admin(&state.db, &body.email, &body.password)
-        .await
-        .map_err(|e| {
-            if e.to_string().contains("unique") || e.to_string().contains("23505") {
-                AppError::Conflict("an admin with that email already exists".to_string())
-            } else {
-                AppError::Internal(e)
-            }
-        })?;
-
-    Ok(Json(CreateAdminUserResponse {
-        id: user.id,
-        email: user.email,
-    }))
 }
 
 // ── Protected handlers ────────────────────────────────────────────────────────

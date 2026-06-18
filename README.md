@@ -36,12 +36,12 @@ make keys
 cp .env.example .env
 # Edit .env and paste in JWT_PRIVATE_KEY and JWT_PUBLIC_KEY
 
-# 3. Start the database and API
+# 3. Start the database and API (creates the first admin on a fresh database)
 make up
 make logs
 ```
 
-The API is available at **http://localhost:8080** once `make up` completes.
+The API is available at **http://localhost:8080** once `make up` completes. On a fresh database, the container entrypoint runs `authstack bootstrap-admin` using `AUTHSTACK_BOOTSTRAP_EMAIL` and `AUTHSTACK_BOOTSTRAP_PASSWORD` from your environment (see [Bootstrap](#bootstrap)).
 
 ## Key generation
 
@@ -95,6 +95,7 @@ make test
 | `make logs` | Tail API logs |
 | `make db-shell` | Open a `psql` shell into the running database |
 | `make keys` | Generate a fresh ES256 key pair |
+| `make bootstrap` | Create the first instance admin via CLI (fresh database only) |
 
 ## Environment variables
 
@@ -103,11 +104,17 @@ make test
 | `DATABASE_URL` | Yes | Postgres connection string |
 | `JWT_PRIVATE_KEY` | Yes | ES256 PEM private key (newlines as `\n`) |
 | `JWT_PUBLIC_KEY` | Yes | ES256 PEM public key (newlines as `\n`) |
-| `AUTHSTACK_ADMIN_KEY` | Yes | Bootstrap key for creating the first admin account (`X-Admin-Key` header) |
 | `ACCESS_TOKEN_EXPIRY_SECS` | No | Access token lifetime in seconds (default: `900`) |
 | `REFRESH_TOKEN_EXPIRY_SECS` | No | Refresh token lifetime in seconds (default: `2592000`) |
 | `PORT` | No | HTTP port (default: `8080`) |
 | `RUST_LOG` | No | Log filter, e.g. `authstack=debug` |
+
+Bootstrap-only variables (not required for `authstack serve` after the first admin exists):
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AUTHSTACK_BOOTSTRAP_EMAIL` | Bootstrap | Email for the first instance admin |
+| `AUTHSTACK_BOOTSTRAP_PASSWORD` | Bootstrap | Password for the first instance admin |
 
 ## API reference
 
@@ -117,17 +124,35 @@ Authstack ships with a browser-based admin panel at `/admin/login`. Log in with 
 
 #### Bootstrap
 
-The first admin account is created once using the `X-Admin-Key` header:
+The first instance admin is created with the CLI — not over HTTP. This only works when the `admin_user` table is empty.
+
+**Docker Compose** (default): set bootstrap variables in `.env`, then `make up`. The entrypoint runs bootstrap automatically on a fresh database:
 
 ```bash
-curl -X POST http://localhost:8080/admin/users \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Key: <AUTHSTACK_ADMIN_KEY>" \
-  -d '{"email": "admin@example.com", "password": "your-password"}'
+AUTHSTACK_BOOTSTRAP_EMAIL=admin@example.com
+AUTHSTACK_BOOTSTRAP_PASSWORD=your-strong-password
 ```
 
-```json
-{ "id": "...", "email": "admin@example.com" }
+**Manual CLI** (local Rust or one-off container):
+
+```bash
+AUTHSTACK_BOOTSTRAP_EMAIL=admin@example.com \
+AUTHSTACK_BOOTSTRAP_PASSWORD='your-strong-password' \
+  cargo run -- bootstrap-admin
+```
+
+Or pipe the password:
+
+```bash
+echo 'your-strong-password' | cargo run -- bootstrap-admin \
+  --email admin@example.com \
+  --password-stdin
+```
+
+```text
+created instance admin
+id:    adm_...
+email: admin@example.com
 ```
 
 After that, open `http://localhost:8080/admin/login` in a browser to manage applications through the UI.
@@ -267,7 +292,7 @@ Consuming services can fetch this endpoint to verify Authstack-issued JWTs local
 - **Passwords:** Hashed with Argon2 (memory-hard, resistant to brute-force).
 - **JWTs:** Signed with ES256 (asymmetric). Only Authstack holds the private key; consuming services verify with the public key.
 - **Refresh token rotation:** Each use of a refresh token invalidates it and issues a new one. Re-use of a rotated token returns `401`.
-- **Admin panel:** Protected by signed JWTs stored in `HttpOnly; SameSite=Strict` cookies. The `X-Admin-Key` is only used once to bootstrap the first admin account — set it to a long random string and keep it secret.
+- **Admin panel:** Protected by signed JWTs stored in `HttpOnly; SameSite=Strict` cookies. The first instance admin is created with `authstack bootstrap-admin` (CLI only).
 
 ## Local development (without Docker)
 
@@ -275,7 +300,12 @@ Requires Rust stable and a running PostgreSQL instance.
 
 ```bash
 cp .env.example .env
-# Fill in DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, AUTHSTACK_ADMIN_KEY
+# Fill in DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY
+
+# Create the first instance admin (fresh database only)
+AUTHSTACK_BOOTSTRAP_EMAIL=admin@example.com \
+AUTHSTACK_BOOTSTRAP_PASSWORD='your-password' \
+  cargo run -- bootstrap-admin
 
 cargo run       # runs migrations automatically, starts on :8080
 cargo check     # fast type-check without full build

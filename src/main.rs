@@ -7,6 +7,8 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod cli;
+mod commands;
 mod config;
 mod error;
 mod ids;
@@ -19,6 +21,7 @@ mod services;
 
 pub use ids::*;
 
+use cli::Command;
 use config::Config;
 use services::jwt::JwtService;
 
@@ -31,9 +34,15 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if std::env::args().any(|arg| arg == "openapi" || arg == "--openapi") {
-        println!("{}", serde_json::to_string_pretty(&openapi::spec())?);
-        return Ok(());
+    match cli::parse() {
+        Command::OpenApi => {
+            println!("{}", serde_json::to_string_pretty(&openapi::spec())?);
+            return Ok(());
+        }
+        Command::BootstrapAdmin(options) => {
+            cli::run_bootstrap_admin(options).await;
+        }
+        Command::Serve => {}
     }
 
     dotenv().ok();

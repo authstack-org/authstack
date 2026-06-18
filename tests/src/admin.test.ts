@@ -2,11 +2,10 @@
 //
 // These tests exercise the admin endpoints directly using raw fetch (no Basic
 // auth client) since the admin panel uses cookie-based sessions, not app
-// credentials. The bootstrap admin user is created by globalSetup and reused
-// here to test the full login / protected-route / logout flow.
+// credentials. The bootstrap admin user is created by the API entrypoint on
+// startup and reused here to test the full login / protected-route / logout flow.
 
 const BASE_URL       = process.env.API_URL             ?? 'http://localhost:8080'
-const ADMIN_KEY      = process.env.AUTHSTACK_ADMIN_KEY     ?? 'change_me_in_tests'
 const ADMIN_EMAIL    = process.env.AUTHSTACK_ADMIN_EMAIL   ?? 'test-admin@authstack.local'
 const ADMIN_PASSWORD = process.env.AUTHSTACK_ADMIN_PASSWORD ?? 'test-admin-password-123'
 
@@ -24,42 +23,6 @@ async function loginAdmin(): Promise<string> {
   if (!raw) throw new Error('login did not return Set-Cookie')
   return raw.split(';')[0] // "admin_token=<jwt>"
 }
-
-// ── Create admin user ─────────────────────────────────────────────────────────
-
-describe('Admin users — POST /admin/users', () => {
-  it('returns 401 with a wrong X-Admin-Key', async () => {
-    const res = await fetch(`${BASE_URL}/admin/users`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': 'wrong-key' },
-      body:    JSON.stringify({ email: 'x@example.com', password: 'password123' }),
-    })
-    expect(res.status).toBe(401)
-  })
-
-  it('returns 409 when the admin email already exists', async () => {
-    // globalSetup already created ADMIN_EMAIL — duplicate must be rejected.
-    const res = await fetch(`${BASE_URL}/admin/users`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_KEY },
-      body:    JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
-    })
-    expect(res.status).toBe(409)
-  })
-
-  it('creates a new admin user with a unique email', async () => {
-    const unique = `admin-${Date.now()}@authstack.local`
-    const res = await fetch(`${BASE_URL}/admin/users`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_KEY },
-      body:    JSON.stringify({ email: unique, password: 'strongpassword123' }),
-    })
-    expect(res.status).toBe(200)
-    const body = await res.json() as { id: string; email: string }
-    expect(body.id).toBeTruthy()
-    expect(body.email).toBe(unique)
-  })
-})
 
 // ── Login page ────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-.PHONY: up down clean test test-clean logs db-shell keys
+.PHONY: up down clean test test-clean logs db-shell keys bootstrap
 
 # ── local dev ─────────────────────────────────────────────────────────────────
 
@@ -61,3 +61,13 @@ keys:
 	@printf 'JWT_PRIVATE_KEY=%s\n' "$$(base64 < /tmp/authstack_ec_pkcs8.pem | tr -d '\n')"
 	@printf 'JWT_PUBLIC_KEY=%s\n' "$$(openssl ec -in /tmp/authstack_ec.pem -pubout 2>/dev/null | base64 | tr -d '\n')"
 	@rm /tmp/authstack_ec.pem /tmp/authstack_ec_pkcs8.pem
+
+# Create the first instance admin on a fresh database.
+# Usage: make bootstrap EMAIL=admin@example.com PASSWORD=secret
+bootstrap:
+	@test -n "$(EMAIL)" || (echo "Usage: make bootstrap EMAIL=admin@example.com PASSWORD=..." && exit 1)
+	@test -n "$(PASSWORD)" || (echo "Usage: make bootstrap EMAIL=admin@example.com PASSWORD=..." && exit 1)
+	docker compose run --rm \
+		-e AUTHSTACK_BOOTSTRAP_EMAIL="$(EMAIL)" \
+		-e AUTHSTACK_BOOTSTRAP_PASSWORD="$(PASSWORD)" \
+		api bootstrap-admin

@@ -8,7 +8,6 @@ pub struct Config {
     pub jwt_public_key: String,
     /// Stable key id for JWS `kid` and JWKS `kid` (must match).
     pub jwt_kid: String,
-    pub admin_key: String,
     pub access_token_expiry_secs: u64,
     pub refresh_token_expiry_secs: u64,
     pub port: u16,
@@ -21,7 +20,6 @@ impl Config {
             jwt_private_key: decode_pem_key(required("JWT_PRIVATE_KEY")?)?,
             jwt_public_key: decode_pem_key(required("JWT_PUBLIC_KEY")?)?,
             jwt_kid: optional_str("JWT_KID", "authstack-1"),
-            admin_key: required("AUTHSTACK_ADMIN_KEY")?,
             access_token_expiry_secs: optional("ACCESS_TOKEN_EXPIRY_SECS", 900),
             refresh_token_expiry_secs: optional("REFRESH_TOKEN_EXPIRY_SECS", 2_592_000),
             port: optional("PORT", 8080),

@@ -24,7 +24,7 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         (url = "http://localhost:8080", description = "Local development")
     ),
     tags(
-        (name = "Admin", description = "Admin panel and bootstrap endpoints."),
+        (name = "Admin", description = "Admin panel endpoints."),
         (name = "Auth", description = "End-user authentication endpoints."),
         (name = "Me", description = "Current user endpoints."),
         (name = "Users", description = "Application-scoped users."),
@@ -36,7 +36,6 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         admin_login_page,
         admin_process_login,
         admin_logout,
-        admin_create_user,
         admin_dashboard,
         admin_new_app_page,
         admin_create_app,
@@ -59,8 +58,6 @@ pub fn spec() -> utoipa::openapi::OpenApi {
     ),
     components(schemas(
         AddMemberRequest,
-        CreateAdminUserRequest,
-        CreateAdminUserResponse,
         CreateApplicationRequest,
         CreateApplicationResponse,
         CreateAppForm,
@@ -109,10 +106,6 @@ impl Modify for SecurityAddon {
             "adminCookie",
             SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("admin_token"))),
         );
-        components.add_security_scheme(
-            "adminKey",
-            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Admin-Key"))),
-        );
     }
 }
 
@@ -136,20 +129,6 @@ struct ErrorResponse {
 #[derive(Debug, Serialize, ToSchema)]
 struct OkResponse {
     ok: bool,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-struct CreateAdminUserRequest {
-    #[schema(format = Email)]
-    email: String,
-    password: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-struct CreateAdminUserResponse {
-    id: String,
-    #[schema(format = Email)]
-    email: String,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -316,23 +295,6 @@ fn admin_process_login() {}
     responses((status = 303, description = "Redirect"))
 )]
 fn admin_logout() {}
-
-#[utoipa::path(
-    post,
-    path = "/admin/users",
-    tag = "Admin",
-    summary = "Create the first admin user",
-    security(("adminKey" = [])),
-    request_body = CreateAdminUserRequest,
-    responses(
-        (status = 200, description = "Admin user created", body = CreateAdminUserResponse),
-        (status = 400, description = "Validation error", body = ErrorResponse),
-        (status = 401, description = "Unauthorized", body = ErrorResponse),
-        (status = 409, description = "Conflict", body = ErrorResponse),
-        (status = 500, description = "Internal error", body = ErrorResponse)
-    )
-)]
-fn admin_create_user() {}
 
 #[utoipa::path(
     get,
