@@ -364,35 +364,6 @@ describe('Admin — operators and app scoping', () => {
     expect(html).toContain('Invite by email')
   })
 
-  it('personal organization detail hides invite and add member sections', async () => {
-    const cookie = await loginAdmin()
-    const appId = ctx.clientId
-    const appSecret = ctx.clientSecret
-    if (!appId || !appSecret) throw new Error('missing app credentials in test context')
-
-    const orgRes = await fetch(`${BASE_URL}/orgs`, {
-      headers: {
-        Authorization:
-          'Basic ' + Buffer.from(`${appId}:${appSecret}`).toString('base64'),
-      },
-    })
-    expect(orgRes.status).toBe(200)
-    const orgs = (await orgRes.json()) as Array<{ id: string; org_type: string }>
-    const personal = orgs.find((o) => o.org_type === 'personal')
-    expect(personal).toBeTruthy()
-
-    const detailRes = await fetch(`${BASE_URL}/admin/apps/${appId}/orgs/${personal!.id}`, {
-      headers:  { Cookie: cookie },
-      redirect: 'manual',
-    })
-    expect(detailRes.status).toBe(200)
-    const html = await detailRes.text()
-    expect(html).toContain('personal')
-    expect(html).not.toContain('Invite by email')
-    expect(html).not.toContain('Add member</h2>')
-    expect(html).not.toContain('Collaboration')
-  })
-
   it('operator can create an invite link from the users page', async () => {
     const cookie = await loginAdmin()
     const appId = ctx.clientId
@@ -471,7 +442,6 @@ describe('Admin — directories', () => {
       body: new URLSearchParams({
         name: 'Acme Corp',
         slug,
-        identity_policy: 'shared_directory',
       }).toString(),
       redirect: 'manual',
     })
@@ -484,7 +454,6 @@ describe('Admin — directories', () => {
     const afterHtml = await afterRes.text()
     expect(afterHtml).toContain('Acme Corp')
     expect(afterHtml).toContain(slug)
-    expect(afterHtml).toContain('Shared directory')
   })
 
   it('opens directory detail and adds a directory admin from the directory UI', async () => {
@@ -502,7 +471,6 @@ describe('Admin — directories', () => {
       body: new URLSearchParams({
         name,
         slug,
-        identity_policy: 'application_silo',
       }).toString(),
       redirect: 'manual',
     })

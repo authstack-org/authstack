@@ -58,7 +58,6 @@ async fn add_member(
         .map_err(|_| AppError::NotFound("organization not found".to_string()))?;
 
     ensure_org_visible(&state, &app.ctx, org_id).await?;
-    ensure_team_org(&state, org_id).await?;
 
     if !identity::user_visible_to_application(&state.db, body.user_id, app.app_id).await? {
         return Err(AppError::NotFound("user not found".to_string()));
@@ -111,22 +110,5 @@ async fn ensure_org_visible(
         Ok(())
     } else {
         Err(AppError::NotFound("organization not found".to_string()))
-    }
-}
-
-async fn ensure_team_org(state: &AppState, org_id: OrganizationId) -> Result<()> {
-    let org_type: Option<String> = sqlx::query_scalar(
-        "SELECT org_type::text FROM organization WHERE id = $1",
-    )
-    .bind(org_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match org_type.as_deref() {
-        Some("team") => Ok(()),
-        Some(_) => Err(AppError::Validation(
-            "members can only be added to team organizations".to_string(),
-        )),
-        None => Err(AppError::NotFound("organization not found".to_string())),
     }
 }

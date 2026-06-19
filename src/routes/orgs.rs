@@ -34,14 +34,9 @@ async fn list_orgs(
     Extension(app): Extension<AppIdentity>,
 ) -> Result<Json<Vec<Organization>>> {
     let orgs: Vec<Organization> = sqlx::query_as(
-        r#"SELECT o.id, o.directory_id, o.application_id, o.name, o.slug, o.org_type, o.logo, o.created_at, o.updated_at
+        r#"SELECT o.id, o.directory_id, o.application_id, o.name, o.slug, o.logo, o.created_at, o.updated_at
            FROM organization o
-           INNER JOIN directory d ON d.id = o.directory_id
-           INNER JOIN application a ON a.id = $1
-           WHERE (
-             (d.identity_policy = 'application_silo' AND o.application_id = $1)
-             OR (d.identity_policy = 'shared_directory' AND o.application_id IS NULL AND o.directory_id = a.directory_id)
-           )
+           WHERE o.application_id = $1
            ORDER BY o.created_at DESC"#,
     )
     .bind(app.app_id)
@@ -65,7 +60,7 @@ async fn get_org(
     }
 
     let org: Option<Organization> = sqlx::query_as(
-        r#"SELECT id, directory_id, application_id, name, slug, org_type, logo, created_at, updated_at
+        r#"SELECT id, directory_id, application_id, name, slug, logo, created_at, updated_at
            FROM organization WHERE id = $1"#,
     )
     .bind(org_id)
@@ -84,20 +79,24 @@ async fn create_org(
     body.validate()
         .map_err(|e| AppError::Validation(e.to_string()))?;
 
-    let org_application_id = identity::org_application_scope(&app.ctx);
-
     let org: Organization = sqlx::query_as(
-        r#"INSERT INTO organization (id, directory_id, application_id, name, slug, org_type)
-           VALUES ($1, $2, $3, $4, $5, 'team')
-           RETURNING id, directory_id, application_id, name, slug, org_type, logo, created_at, updated_at"#,
+        r#"INSERT INTO organization (id, directory_id, application_id, name, slug)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, directory_id, application_id, name, slug, logo, created_at, updated_at"#,
     )
     .bind(OrganizationId::new())
     .bind(app.ctx.directory_id)
-    .bind(org_application_id)
+    .bind(app.app_id)
     .bind(&body.name)
     .bind(&body.slug)
     .fetch_one(&state.db)
-    .await?;
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
+            AppError::Conflict("organization slug already taken".to_string())
+        }
+        other => AppError::Internal(other.into()),
+    })?;
 
     Ok(Json(org))
 }

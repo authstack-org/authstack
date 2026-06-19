@@ -5,14 +5,12 @@ use sqlx::PgPool;
 use crate::ids::{AdminUserId, ApplicationId, DirectoryId, OrganizationId};
 use crate::models::admin_role::AdminRole;
 use crate::models::admin_user::AdminUser;
-use crate::models::identity_policy::IdentityPolicy;
 use crate::services::{admin_access, admin_auth::AdminSession, identity, password};
 
 pub struct DirectorySummary {
     pub id: DirectoryId,
     pub name: String,
     pub slug: String,
-    pub identity_policy: IdentityPolicy,
     pub application_count: i64,
     pub admin_count: i64,
     pub created_at: DateTime<Utc>,
@@ -99,9 +97,9 @@ pub fn validate_directory_slug(slug: &str) -> Result<()> {
 }
 
 pub async fn list_directories(db: &PgPool) -> Result<Vec<DirectorySummary>> {
-    let rows: Vec<(DirectoryId, String, String, IdentityPolicy, DateTime<Utc>, i64, i64)> =
+    let rows: Vec<(DirectoryId, String, String, DateTime<Utc>, i64, i64)> =
         sqlx::query_as(&format!(
-            r#"SELECT d.id, d.name, d.slug, d.identity_policy, d.created_at,
+            r#"SELECT d.id, d.name, d.slug, d.created_at,
                       COUNT(a.id)::bigint AS application_count,
                       {DIRECTORY_ADMIN_COUNT_SUBQUERY} AS admin_count
                FROM directory d
@@ -114,19 +112,16 @@ pub async fn list_directories(db: &PgPool) -> Result<Vec<DirectorySummary>> {
 
     Ok(rows
         .into_iter()
-        .map(
-            |(id, name, slug, identity_policy, created_at, application_count, admin_count)| {
-                DirectorySummary {
-                    id,
-                    name,
-                    slug,
-                    identity_policy,
-                    application_count,
-                    admin_count,
-                    created_at,
-                }
-            },
-        )
+        .map(|(id, name, slug, created_at, application_count, admin_count)| {
+            DirectorySummary {
+                id,
+                name,
+                slug,
+                application_count,
+                admin_count,
+                created_at,
+            }
+        })
         .collect())
 }
 
@@ -134,9 +129,9 @@ pub async fn get_directory(
     db: &PgPool,
     directory_id: DirectoryId,
 ) -> Result<Option<DirectorySummary>> {
-    let row: Option<(DirectoryId, String, String, IdentityPolicy, DateTime<Utc>, i64, i64)> =
+    let row: Option<(DirectoryId, String, String, DateTime<Utc>, i64, i64)> =
         sqlx::query_as(&format!(
-            r#"SELECT d.id, d.name, d.slug, d.identity_policy, d.created_at,
+            r#"SELECT d.id, d.name, d.slug, d.created_at,
                       COUNT(a.id)::bigint AS application_count,
                       {DIRECTORY_ADMIN_COUNT_SUBQUERY} AS admin_count
                FROM directory d
@@ -148,19 +143,16 @@ pub async fn get_directory(
         .fetch_optional(db)
         .await?;
 
-    Ok(row.map(
-        |(id, name, slug, identity_policy, created_at, application_count, admin_count)| {
-            DirectorySummary {
-                id,
-                name,
-                slug,
-                identity_policy,
-                application_count,
-                admin_count,
-                created_at,
-            }
-        },
-    ))
+    Ok(row.map(|(id, name, slug, created_at, application_count, admin_count)| {
+        DirectorySummary {
+            id,
+            name,
+            slug,
+            application_count,
+            admin_count,
+            created_at,
+        }
+    }))
 }
 
 pub async fn list_directories_for_session(
@@ -214,12 +206,7 @@ pub async fn list_directory_admins(
         .collect())
 }
 
-pub async fn create_directory(
-    db: &PgPool,
-    name: &str,
-    slug: &str,
-    identity_policy: IdentityPolicy,
-) -> Result<DirectorySummary> {
+pub async fn create_directory(db: &PgPool, name: &str, slug: &str) -> Result<DirectorySummary> {
     let name = name.trim();
     let slug = slug.trim();
     if name.is_empty() {
@@ -228,15 +215,14 @@ pub async fn create_directory(
     validate_directory_slug(slug)?;
 
     let id = DirectoryId::new();
-    let row: (DirectoryId, String, String, IdentityPolicy, DateTime<Utc>) = sqlx::query_as(
-        r#"INSERT INTO directory (id, name, slug, identity_policy)
-           VALUES ($1, $2, $3, $4)
-           RETURNING id, name, slug, identity_policy, created_at"#,
+    let row: (DirectoryId, String, String, DateTime<Utc>) = sqlx::query_as(
+        r#"INSERT INTO directory (id, name, slug)
+           VALUES ($1, $2, $3)
+           RETURNING id, name, slug, created_at"#,
     )
     .bind(id)
     .bind(name)
     .bind(slug)
-    .bind(identity_policy)
     .fetch_one(db)
     .await?;
 
@@ -244,10 +230,9 @@ pub async fn create_directory(
         id: row.0,
         name: row.1,
         slug: row.2,
-        identity_policy: row.3,
         application_count: 0,
         admin_count: 0,
-        created_at: row.4,
+        created_at: row.3,
     })
 }
 
@@ -367,7 +352,6 @@ pub struct OrgSummary {
     pub id: String,
     pub name: String,
     pub slug: String,
-    pub org_type: String,
     pub member_count: i64,
     pub created_at: DateTime<Utc>,
 }
@@ -376,7 +360,6 @@ pub struct OrgDetail {
     pub id: String,
     pub name: String,
     pub slug: String,
-    pub org_type: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -389,16 +372,12 @@ pub struct OrgMemberRow {
     pub created_at: DateTime<Utc>,
 }
 
-const ORG_VISIBILITY: &str = r#"(
-    (d.identity_policy = 'application_silo' AND o.application_id = $1)
-    OR (d.identity_policy = 'shared_directory' AND o.application_id IS NULL AND o.directory_id = a.directory_id)
-)"#;
+const ORG_VISIBILITY: &str = "o.application_id = a.id";
 
 pub async fn list_orgs_for_app(db: &PgPool, app_id: ApplicationId) -> Result<Vec<OrgSummary>> {
-    let rows: Vec<(String, String, String, String, i64, DateTime<Utc>)> = sqlx::query_as(&format!(
-        r#"SELECT o.id, o.name, o.slug, o.org_type::text, COUNT(m.id)::bigint, o.created_at
+    let rows: Vec<(String, String, String, i64, DateTime<Utc>)> = sqlx::query_as(&format!(
+        r#"SELECT o.id, o.name, o.slug, COUNT(m.id)::bigint, o.created_at
            FROM organization o
-           INNER JOIN directory d ON d.id = o.directory_id
            INNER JOIN application a ON a.id = $1
            LEFT JOIN member m ON m.organization_id = o.id
            WHERE {ORG_VISIBILITY}
@@ -411,11 +390,10 @@ pub async fn list_orgs_for_app(db: &PgPool, app_id: ApplicationId) -> Result<Vec
 
     Ok(rows
         .into_iter()
-        .map(|(id, name, slug, org_type, member_count, created_at)| OrgSummary {
+        .map(|(id, name, slug, member_count, created_at)| OrgSummary {
             id,
             name,
             slug,
-            org_type,
             member_count,
             created_at,
         })
@@ -442,16 +420,14 @@ pub async fn create_team_org(
         anyhow::bail!("organization slug is required");
     }
 
-    let org_application_id = identity::org_application_scope(&ctx);
-
-    let row: (String, String, String, String, DateTime<Utc>) = sqlx::query_as(
-        r#"INSERT INTO organization (id, directory_id, application_id, name, slug, org_type)
-           VALUES ($1, $2, $3, $4, $5, 'team')
-           RETURNING id, name, slug, org_type::text, created_at"#,
+    let row: (String, String, String, DateTime<Utc>) = sqlx::query_as(
+        r#"INSERT INTO organization (id, directory_id, application_id, name, slug)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, name, slug, created_at"#,
     )
     .bind(OrganizationId::new())
     .bind(ctx.directory_id)
-    .bind(org_application_id)
+    .bind(app_id)
     .bind(name)
     .bind(slug)
     .fetch_one(db)
@@ -461,8 +437,7 @@ pub async fn create_team_org(
         id: row.0,
         name: row.1,
         slug: row.2,
-        org_type: row.3,
-        created_at: row.4,
+        created_at: row.3,
     })
 }
 
@@ -483,8 +458,8 @@ pub async fn get_org_for_app(
         return Ok(None);
     }
 
-    let row: Option<(String, String, String, String, DateTime<Utc>)> = sqlx::query_as(
-        r#"SELECT id, name, slug, org_type::text, created_at
+    let row: Option<(String, String, String, DateTime<Utc>)> = sqlx::query_as(
+        r#"SELECT id, name, slug, created_at
            FROM organization
            WHERE id = $1"#,
     )
@@ -492,11 +467,10 @@ pub async fn get_org_for_app(
     .fetch_optional(db)
     .await?;
 
-    Ok(row.map(|(id, name, slug, org_type, created_at)| OrgDetail {
+    Ok(row.map(|(id, name, slug, created_at)| OrgDetail {
         id,
         name,
         slug,
-        org_type,
         created_at,
     }))
 }
@@ -534,13 +508,9 @@ pub async fn add_org_member(
     role: &str,
 ) -> Result<()> {
     let org = get_org_for_app(db, app_id, org_id).await?;
-    let Some(org) = org else {
+    let Some(_org) = org else {
         anyhow::bail!("organization not found");
     };
-
-    if org.org_type != "team" {
-        anyhow::bail!("members can only be added to team organizations");
-    }
 
     let user_id_parsed: crate::ids::UserId = user_id
         .parse()

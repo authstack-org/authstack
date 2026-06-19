@@ -11,21 +11,6 @@ let inviteUrl = ''
 let invitedUserId = ''
 
 describe('Invites', () => {
-  it('rejects invite creation for a personal organization', async () => {
-    const { status: listStatus, body: orgs } = await api.get<
-      Array<{ id: string; org_type: string }>
-    >('/orgs')
-    expect(listStatus).toBe(200)
-    const personal = orgs.find((o) => o.org_type === 'personal')
-    expect(personal).toBeTruthy()
-
-    const { status } = await api.post(`/orgs/${personal!.id}/invites`, {
-      email: `personal-invite-${Date.now()}@example.com`,
-      role: 'member',
-    })
-    expect(status).toBe(422)
-  })
-
   it('creates an invite and returns an invite URL', async () => {
     const { status, body } = await api.post<{
       id: string
@@ -80,7 +65,7 @@ describe('Invites', () => {
     invitedUserId = body.id
   })
 
-  it('adds the invited user as a member of the team org', async () => {
+  it('adds the invited user as a member of the organization', async () => {
     const { status, body } = await api.get<Array<{ user_id: string }>>(`/orgs/${ctx.orgId}/members`)
     expect(status).toBe(200)
     expect(body.some((m) => m.user_id === invitedUserId)).toBe(true)

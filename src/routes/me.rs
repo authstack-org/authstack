@@ -90,7 +90,7 @@ pub async fn membership_for_org(
     app_id: ApplicationId,
     user_id: UserId,
     org_id: crate::ids::OrganizationId,
-) -> Result<(crate::models::organization::OrgType, String)> {
+) -> Result<String> {
     let ctx = identity::load_app_context(&state.db, app_id)
         .await?
         .ok_or_else(|| AppError::Unauthorized("invalid application".to_string()))?;

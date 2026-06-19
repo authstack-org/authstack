@@ -43,7 +43,6 @@ async function createDirectory(cookie: string, name: string, slug: string): Prom
     body: new URLSearchParams({
       name,
       slug,
-      identity_policy: 'application_silo',
     }).toString(),
     redirect: 'manual',
   })

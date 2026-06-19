@@ -78,7 +78,6 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         Member,
         OkResponse,
         Organization,
-        OrgType,
         RefreshRequest,
         SignupRequest,
         SignupResponse,
@@ -197,7 +196,6 @@ struct TokenResponse {
 struct User {
     id: String,
     directory_id: String,
-    scoped_application_id: Option<String>,
     name: String,
     #[schema(format = Email)]
     email: String,
@@ -213,22 +211,14 @@ struct User {
 struct Organization {
     id: String,
     directory_id: String,
-    application_id: Option<String>,
+    application_id: String,
     name: String,
     slug: String,
-    org_type: OrgType,
     logo: Option<String>,
     #[schema(format = DateTime)]
     created_at: String,
     #[schema(format = DateTime)]
     updated_at: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-enum OrgType {
-    Personal,
-    Team,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -357,7 +347,7 @@ fn admin_create_application() {}
     post,
     path = "/auth/signup",
     tag = "Auth",
-    summary = "Create a user and personal organization",
+    summary = "Create a user",
     security(("appBasicAuth" = [])),
     request_body = SignupRequest,
     responses((status = 200, description = "User created", body = SignupResponse))

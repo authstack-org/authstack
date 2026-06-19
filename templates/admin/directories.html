@@ -23,7 +23,7 @@
 <div class="mb-6 flex items-center justify-between gap-4">
     <div>
         <h1 class="text-2xl font-semibold tracking-tight">Directories</h1>
-        <p class="text-sm text-muted-foreground">Identity boundaries for applications, users, and organizations.</p>
+        <p class="text-sm text-muted-foreground">Identity boundaries for applications, users, and organizations. Users in the same directory share one identity across all apps unless you create a separate directory.</p>
     </div>
     {% if can_manage_directories %}
     <a href="/admin/directories/new" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">New directory</a>
@@ -45,7 +45,6 @@
                 <tr class="border-b bg-muted/50">
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Name</th>
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Slug</th>
-                    <th class="h-10 px-4 text-left font-medium text-muted-foreground">Policy</th>
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Applications</th>
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Admins</th>
                     <th class="h-10 px-4 text-left font-medium text-muted-foreground">Created</th>
@@ -58,7 +57,6 @@
                     data-directory-id="{{ dir.directory_id }}">
                     <td class="p-4 align-middle font-medium">{{ dir.name }}</td>
                     <td class="p-4 align-middle"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ dir.slug }}</code></td>
-                    <td class="p-4 align-middle">{{ dir.policy_label }}</td>
                     <td class="p-4 align-middle">{{ dir.application_count }}</td>
                     <td class="p-4 align-middle">{{ dir.admin_count }}</td>
                     <td class="p-4 align-middle text-muted-foreground">{{ dir.created_at }}</td>

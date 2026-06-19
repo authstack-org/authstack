@@ -13,9 +13,10 @@ pub struct AccessTokenClaims {
     pub sub: String, // user_id
     pub directory_id: String,
     pub app_id: String,
-    pub org_id: String,
-    pub org_type: String,
-    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
     pub email: String,
     pub jti: String,
     pub iat: i64,
@@ -87,9 +88,8 @@ impl JwtService {
         user_id: UserId,
         directory_id: DirectoryId,
         app_id: ApplicationId,
-        org_id: OrganizationId,
-        org_type: &str,
-        role: &str,
+        org_id: Option<OrganizationId>,
+        role: Option<&str>,
         email: &str,
     ) -> Result<String> {
         let now = Utc::now().timestamp();
@@ -97,9 +97,8 @@ impl JwtService {
             sub: user_id.to_string(),
             directory_id: directory_id.to_string(),
             app_id: app_id.to_string(),
-            org_id: org_id.to_string(),
-            org_type: org_type.to_string(),
-            role: role.to_string(),
+            org_id: org_id.map(|id| id.to_string()),
+            role: role.map(|r| r.to_string()),
             email: email.to_string(),
             jti: Uuid::new_v4().to_string(),
             iat: now,
@@ -200,9 +199,8 @@ mod tests {
                 UserId::new(),
                 DirectoryId::new(),
                 ApplicationId::new(),
-                OrganizationId::new(),
-                "team",
-                "member",
+                Some(OrganizationId::new()),
+                Some("member"),
                 "a@b.com",
             )
             .unwrap();

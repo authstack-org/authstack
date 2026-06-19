@@ -61,17 +61,6 @@ pub async fn create_invite(db: &PgPool, input: CreateInviteInput<'_>) -> Result<
         anyhow::bail!("organization not found");
     }
 
-    let org_type: Option<String> = sqlx::query_scalar(
-        "SELECT org_type::text FROM organization WHERE id = $1",
-    )
-    .bind(input.organization_id)
-    .fetch_optional(db)
-    .await?;
-
-    if org_type.as_deref() != Some("team") {
-        anyhow::bail!("invites can only be created for team organizations");
-    }
-
     let existing_member: Option<UserId> = sqlx::query_scalar(
         r#"SELECT m.user_id
            FROM member m
@@ -305,17 +294,14 @@ pub async fn accept_invite(
         };
 
         let password_hash = password::hash(password).map_err(AppError::Internal)?;
-        let scoped_application_id = identity::org_application_scope(&app_ctx);
-        let org_application_id = scoped_application_id;
 
         let user: User = sqlx::query_as(
-            r#"INSERT INTO "user" (id, directory_id, scoped_application_id, name, email, email_verified)
-               VALUES ($1, $2, $3, $4, $5, false)
-               RETURNING id, directory_id, scoped_application_id, name, email, email_verified, image, created_at, updated_at"#,
+            r#"INSERT INTO "user" (id, directory_id, name, email, email_verified)
+               VALUES ($1, $2, $3, $4, false)
+               RETURNING id, directory_id, name, email, email_verified, image, created_at, updated_at"#,
         )
         .bind(UserId::new())
         .bind(app_ctx.directory_id)
-        .bind(scoped_application_id)
         .bind(&display_name)
         .bind(&email)
         .fetch_one(&mut *tx)
@@ -331,29 +317,6 @@ pub async fn accept_invite(
         .await?;
 
         identity::grant_app_access(&mut tx, user.id, application_id).await?;
-
-        let personal_org_slug = format!("{}-personal", user.id);
-        let personal_org_id: OrganizationId = sqlx::query_scalar(
-            r#"INSERT INTO organization (id, directory_id, application_id, name, slug, org_type)
-               VALUES ($1, $2, $3, $4, $5, 'personal')
-               RETURNING id"#,
-        )
-        .bind(OrganizationId::new())
-        .bind(app_ctx.directory_id)
-        .bind(org_application_id)
-        .bind(format!("{}'s workspace", display_name))
-        .bind(personal_org_slug)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            "INSERT INTO member (id, organization_id, user_id, role) VALUES ($1, $2, $3, 'owner')",
-        )
-        .bind(MemberId::new())
-        .bind(personal_org_id)
-        .bind(user.id)
-        .execute(&mut *tx)
-        .await?;
 
         user
     };

@@ -1,21 +1,17 @@
 -- Tenant identity: directories, applications, users, organizations, and grants.
 CREATE SCHEMA tenant;
 
-CREATE TYPE tenant.identity_policy AS ENUM ('application_silo', 'shared_directory');
-CREATE TYPE tenant.org_type AS ENUM ('personal', 'team');
-
 CREATE TABLE tenant.directory (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
-    identity_policy tenant.identity_policy NOT NULL DEFAULT 'application_silo',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Default directory for single-company and startup installs (hidden in simple setups).
-INSERT INTO tenant.directory (id, name, slug, identity_policy)
-VALUES ('dir_00000000000000000000000001', 'Default', 'default', 'application_silo');
+-- Default directory for single-company installs (hidden in simple setups).
+INSERT INTO tenant.directory (id, name, slug)
+VALUES ('dir_00000000000000000000000001', 'Default', 'default');
 
 CREATE TABLE tenant.application (
     id TEXT PRIMARY KEY,
@@ -31,26 +27,16 @@ CREATE INDEX idx_application_directory_id ON tenant.application(directory_id);
 CREATE TABLE tenant."user" (
     id TEXT PRIMARY KEY,
     directory_id TEXT NOT NULL REFERENCES tenant.directory(id) ON DELETE CASCADE,
-  -- Set for application_silo users; NULL for shared_directory identities.
-    scoped_application_id TEXT REFERENCES tenant.application(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     image TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT user_directory_email_unique UNIQUE (directory_id, email)
 );
 
 CREATE INDEX idx_user_directory_id ON tenant."user"(directory_id);
-CREATE INDEX idx_user_scoped_application_id ON tenant."user"(scoped_application_id);
-
-CREATE UNIQUE INDEX idx_user_shared_email
-    ON tenant."user"(directory_id, email)
-    WHERE scoped_application_id IS NULL;
-
-CREATE UNIQUE INDEX idx_user_siloed_email
-    ON tenant."user"(directory_id, scoped_application_id, email)
-    WHERE scoped_application_id IS NOT NULL;
 
 CREATE TABLE tenant.user_app_grant (
     user_id TEXT NOT NULL REFERENCES tenant."user"(id) ON DELETE CASCADE,
@@ -64,26 +50,17 @@ CREATE INDEX idx_user_app_grant_application_id ON tenant.user_app_grant(applicat
 CREATE TABLE tenant.organization (
     id TEXT PRIMARY KEY,
     directory_id TEXT NOT NULL REFERENCES tenant.directory(id) ON DELETE CASCADE,
-  -- NULL = directory-wide org (shared_directory); set = app-scoped org (application_silo).
-    application_id TEXT REFERENCES tenant.application(id) ON DELETE CASCADE,
+    application_id TEXT NOT NULL REFERENCES tenant.application(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     slug TEXT NOT NULL,
-    org_type tenant.org_type NOT NULL,
     logo TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT organization_application_slug_unique UNIQUE (application_id, slug)
 );
 
 CREATE INDEX idx_organization_directory_id ON tenant.organization(directory_id);
 CREATE INDEX idx_organization_application_id ON tenant.organization(application_id);
-
-CREATE UNIQUE INDEX idx_organization_directory_slug_shared
-    ON tenant.organization(directory_id, slug)
-    WHERE application_id IS NULL;
-
-CREATE UNIQUE INDEX idx_organization_directory_app_slug
-    ON tenant.organization(directory_id, application_id, slug)
-    WHERE application_id IS NOT NULL;
 
 CREATE TABLE tenant.member (
     id TEXT PRIMARY KEY,

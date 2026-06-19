@@ -16,7 +16,6 @@ use crate::{
     ids::{ApplicationId, DirectoryId, OrganizationId},
     services::admin_auth::AdminSession,
     models::admin_role::AdminRole,
-    models::identity_policy::IdentityPolicy,
     services::{admin_access, admin_ops, auth as auth_service, identity, invites, password},
 };
 
@@ -78,7 +77,6 @@ struct DirectoryDetailTemplate {
     directory_id: String,
     directory_name: String,
     directory_slug: String,
-    policy_label: String,
     application_count: i64,
     created_at: DateTime<Utc>,
     admins: Vec<DirectoryAdminDisplay>,
@@ -106,7 +104,6 @@ struct NewDirectoryTemplate {
     error: Option<String>,
     name: Option<String>,
     slug: Option<String>,
-    identity_policy: Option<String>,
 }
 
 #[derive(Template)]
@@ -198,7 +195,6 @@ struct OrgDetailTemplate {
     org_id: String,
     org_name: String,
     org_slug: String,
-    org_type: String,
     org_created_at: DateTime<Utc>,
     members: Vec<OrgMemberDisplay>,
     pending_invites: Vec<InviteDisplay>,
@@ -211,7 +207,6 @@ struct OrgRow {
     id: String,
     name: String,
     slug: String,
-    org_type: String,
     member_count: i64,
     created_at: DateTime<Utc>,
 }
@@ -317,7 +312,6 @@ struct DirectoryRow {
     directory_id: String,
     name: String,
     slug: String,
-    policy_label: String,
     application_count: i64,
     admin_count: i64,
     created_at: DateTime<Utc>,
@@ -785,14 +779,12 @@ fn team_org_select_rows(
     orgs: &[admin_ops::OrgSummary],
     selected_org_id: Option<&str>,
 ) -> Vec<OrgSelectRow> {
-    let team_orgs: Vec<_> = orgs.iter().filter(|o| o.org_type == "team").collect();
     let default_org = selected_org_id
-        .filter(|id| team_orgs.iter().any(|o| o.id == *id))
+        .filter(|id| orgs.iter().any(|o| o.id == *id))
         .map(str::to_string)
-        .or_else(|| team_orgs.first().map(|o| o.id.clone()));
+        .or_else(|| orgs.first().map(|o| o.id.clone()));
 
-    team_orgs
-        .into_iter()
+    orgs.iter()
         .map(|o| OrgSelectRow {
             org_id: o.id.clone(),
             label: format!("{} ({})", o.name, o.slug),
@@ -1042,7 +1034,7 @@ async fn create_app_user(
                     app_id: app.id.to_string(),
                     app_name: app.name,
                     error: Some(
-                        "A user with that email already exists in this application.".to_string(),
+                        "A user with that email already exists in this directory.".to_string(),
                     ),
                     name: Some(name),
                     email: Some(email),
@@ -1090,7 +1082,6 @@ async fn app_orgs(
                 id: o.id,
                 name: o.name,
                 slug: o.slug,
-                org_type: o.org_type,
                 member_count: o.member_count,
                 created_at: o.created_at,
             })
@@ -1256,7 +1247,6 @@ async fn build_org_detail_page(
         org_id: org.id.clone(),
         org_name: org.name.clone(),
         org_slug: org.slug.clone(),
-        org_type: org.org_type.clone(),
         org_created_at: org.created_at,
         members: members
             .into_iter()
@@ -1510,7 +1500,6 @@ async fn directories_page(
                 directory_id: d.id.to_string(),
                 name: d.name,
                 slug: d.slug,
-                policy_label: d.identity_policy.label().to_string(),
                 application_count: d.application_count,
                 admin_count: d.admin_count,
                 created_at: d.created_at,
@@ -1562,7 +1551,6 @@ async fn directory_detail(
         directory_id: directory.id.to_string(),
         directory_name: directory.name,
         directory_slug: directory.slug,
-        policy_label: directory.identity_policy.label().to_string(),
         application_count: directory.application_count,
         created_at: directory.created_at,
         admins: admins
@@ -1706,7 +1694,6 @@ async fn new_directory_page(Extension(identity): Extension<AdminSession>) -> Res
         error: None,
         name: None,
         slug: None,
-        identity_policy: Some("application_silo".to_string()),
     })
     .into_response()
 }
@@ -1715,7 +1702,6 @@ async fn new_directory_page(Extension(identity): Extension<AdminSession>) -> Res
 struct CreateDirectoryForm {
     name: String,
     slug: String,
-    identity_policy: String,
 }
 
 async fn create_directory(
@@ -1729,23 +1715,8 @@ async fn create_directory(
 
     let name = body.name.trim().to_string();
     let slug = body.slug.trim().to_string();
-    let policy_str = body.identity_policy.clone();
-    let identity_policy = match policy_str.parse::<IdentityPolicy>() {
-        Ok(policy) => policy,
-        Err(()) => {
-            return render(NewDirectoryTemplate {
-                admin_email: identity.email.clone(),
-                is_instance_admin: true,
-                error: Some("Invalid identity policy.".to_string()),
-                name: Some(name),
-                slug: Some(slug),
-                identity_policy: Some(policy_str),
-            })
-            .into_response()
-        }
-    };
 
-    match admin_ops::create_directory(&state.db, &name, &slug, identity_policy).await {
+    match admin_ops::create_directory(&state.db, &name, &slug).await {
         Ok(_) => Redirect::to("/admin/directories").into_response(),
         Err(e) if e.to_string().contains("23505") => render(NewDirectoryTemplate {
             admin_email: identity.email.clone(),
@@ -1753,7 +1724,6 @@ async fn create_directory(
             error: Some("A directory with that slug already exists.".to_string()),
             name: Some(name),
             slug: Some(slug),
-            identity_policy: Some(policy_str),
         })
         .into_response(),
         Err(e) => render(NewDirectoryTemplate {
@@ -1762,7 +1732,6 @@ async fn create_directory(
             error: Some(e.to_string()),
             name: Some(name),
             slug: Some(slug),
-            identity_policy: Some(policy_str),
         })
         .into_response(),
     }

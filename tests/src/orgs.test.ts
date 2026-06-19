@@ -4,25 +4,24 @@ import { ctx } from './helpers/seed'
 const SLUG = `test-org-${Date.now()}`
 
 describe('Organizations', () => {
-  it('lists orgs — includes the personal org auto-created on signup', async () => {
-    const { status, body } = await api.get<Array<{ id: string; org_type: string }>>('/orgs')
+  it('lists orgs for the application', async () => {
+    const { status, body } = await api.get<Array<{ id: string; slug: string }>>('/orgs')
     expect(status).toBe(200)
     expect(Array.isArray(body)).toBe(true)
-    expect(body.some((o) => o.org_type === 'personal')).toBe(true)
   })
 
-  it('creates a team org', async () => {
+  it('creates an organization', async () => {
     const { status, body } = await api.post<{
       id: string
       name: string
       slug: string
-      org_type: string
+      application_id: string
     }>('/orgs', { name: 'Test Org', slug: SLUG })
 
     expect(status).toBe(200)
     expect(body.id).toBeTruthy()
     expect(body.slug).toBe(SLUG)
-    expect(body.org_type).toBe('team')
+    expect(body.application_id).toBe(ctx.clientId)
 
     ctx.orgId = body.id
   })

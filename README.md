@@ -2,7 +2,7 @@
 
 Headless, multi-tenant authentication service. Built with Rust, Axum, and PostgreSQL.
 
-Acts as the auth backend for multiple applications — similar in spirit to Clerk or Kinde, but self-hosted. Identity is grouped under **directories** with either **application silo** (isolated users per app, default) or **shared directory** (one identity, app access via grants) policy.
+Acts as the auth backend for multiple applications — similar in spirit to Clerk or Kinde, but self-hosted. Identity is grouped under **directories** (shared users per directory); **applications** are isolated by `user_app_grant`. **Organizations** are optional, app-scoped tenants or teams.
 
 PostgreSQL uses two schemas: **`admin`** for instance operators and **`tenant`** for directories, applications, users, organizations, and grants.
 
@@ -19,7 +19,7 @@ Mobile / Web  →  App Backend (BFF)  →  Authstack
                  holds client_secret     issues JWTs
 ```
 
-On signup, Authstack automatically creates a **personal organization** for the user and a **user app grant** for the signing-in application. Team organizations can be created on top of this. The issued JWT carries `app_id`, `directory_id`, `org_id`, `org_type`, and `role` so the consuming app has full access context without a second round-trip.
+On signup, Authstack creates the user in the directory and a **user app grant** for the signing-in application. Organizations are created explicitly when your app needs tenants or teams. The JWT includes `app_id`, `directory_id`, and optionally `org_id` and `role` when the user has org membership.
 
 ## Prerequisites
 
@@ -214,7 +214,7 @@ Where `<app_id>` is the TypeID returned when the application was created (e.g. `
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/auth/signup` | Create a new user (auto-creates a personal org) |
+| `POST` | `/auth/signup` | Create a new user |
 | `POST` | `/auth/login` | Authenticate a user, returns access + refresh tokens |
 | `POST` | `/auth/refresh` | Rotate refresh token, returns a new token pair |
 | `POST` | `/auth/logout` | Revoke a refresh token |
@@ -250,16 +250,18 @@ The access token payload includes:
 ```json
 {
   "sub": "usr_01j4hz0r3fexwpbgm41z1w57at",
+  "directory_id": "dir_00000000000000000000000001",
   "app_id": "app_01j4hz0r3fexwpbgm41z1w57at",
   "org_id": "org_01j4hz0r3fexwpbgm41z1w57at",
-  "org_type": "personal",
-  "role": "owner",
+  "role": "member",
   "email": "alice@example.com",
   "jti": "<uuid>",
   "iat": 1234567890,
   "exp": 1234568790
 }
 ```
+
+`org_id` and `role` are omitted when the user has no organization membership in the application.
 
 All entity IDs are TypeIDs — a prefixed, sortable identifier format. Prefixes: `app_` (application), `usr_` (user), `org_` (organization), `mbr_` (member), `acct_` (account), `rsess_` (refresh session), `adm_` (admin user).
 

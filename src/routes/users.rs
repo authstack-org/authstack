@@ -24,7 +24,7 @@ async fn list_users(
     Extension(app): Extension<AppIdentity>,
 ) -> Result<Json<Vec<User>>> {
     let users: Vec<User> = sqlx::query_as(
-        r#"SELECT u.id, u.directory_id, u.scoped_application_id, u.name, u.email, u.email_verified, u.image, u.created_at, u.updated_at
+        r#"SELECT u.id, u.directory_id, u.name, u.email, u.email_verified, u.image, u.created_at, u.updated_at
            FROM "user" u
            INNER JOIN user_app_grant g ON g.user_id = u.id
            WHERE g.application_id = $1
@@ -51,7 +51,7 @@ async fn get_user(
     }
 
     let user: Option<User> = sqlx::query_as(
-        r#"SELECT id, directory_id, scoped_application_id, name, email, email_verified, image, created_at, updated_at
+        r#"SELECT id, directory_id, name, email, email_verified, image, created_at, updated_at
            FROM "user" WHERE id = $1"#,
     )
     .bind(user_id)

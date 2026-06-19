@@ -4,7 +4,6 @@ pub mod admin_user;
 pub mod app_invite;
 pub mod application;
 pub mod directory;
-pub mod identity_policy;
 pub mod member;
 pub mod organization;
 pub mod refresh_session;

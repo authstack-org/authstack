@@ -22,10 +22,6 @@ impl AppIdentity {
     pub fn directory_id(&self) -> crate::ids::DirectoryId {
         self.ctx.directory_id
     }
-
-    pub fn identity_policy(&self) -> crate::models::identity_policy::IdentityPolicy {
-        self.ctx.identity_policy
-    }
 }
 
 pub async fn authenticate_app(

@@ -82,6 +82,9 @@ describe('Auth — login', () => {
     expect(body.refresh_token).toBeTruthy()
     expect(body.token_type).toBe('Bearer')
 
+    const claims = decodeJwtPayload(body.access_token)
+    expect(claims.org_id).toBeUndefined()
+
     ctx.accessToken  = body.access_token
     ctx.refreshToken = body.refresh_token
   })
@@ -102,12 +105,11 @@ describe('Auth — user organizations and org switching', () => {
     expect(memberRes.status).toBe(200)
 
     const { status, body } = await api.get<Array<{
-      organization: { id: string; org_type: string }
+      organization: { id: string; slug: string }
       role: string
     }>>('/me/organizations', { Authorization: `Bearer ${ctx.accessToken}` })
 
     expect(status).toBe(200)
-    expect(body.some((item) => item.organization.org_type === 'personal')).toBe(true)
     expect(body.some((item) => item.organization.id === switchOrgId && item.role === 'member')).toBe(true)
   })
 
@@ -125,7 +127,6 @@ describe('Auth — user organizations and org switching', () => {
 
     const claims = decodeJwtPayload(body.access_token)
     expect(claims.org_id).toBe(switchOrgId)
-    expect(claims.org_type).toBe('team')
     expect(claims.role).toBe('member')
   })
 
@@ -158,7 +159,6 @@ describe('Auth — refresh', () => {
 
     const claims = decodeJwtPayload(body.access_token)
     expect(claims.org_id).toBe(switchOrgId)
-    expect(claims.org_type).toBe('team')
     expect(claims.role).toBe('member')
 
     ctx.refreshToken = body.refresh_token
@@ -175,7 +175,7 @@ describe('Auth — refresh', () => {
     expect(body.refresh_token).toBeTruthy()
 
     const claims = decodeJwtPayload(body.access_token)
-    expect(claims.org_type).toBe('personal')
+    expect(claims.org_id).toBe(switchOrgId)
 
     ctx.refreshToken = body.refresh_token
   })
@@ -234,5 +234,81 @@ describe('Auth — app isolation', () => {
       },
     )
     expect(res.status).toBe(401)
+  })
+
+  it('denies login to another app in the same directory without a grant', async () => {
+    const baseUrl = process.env.API_URL ?? 'http://localhost:8080'
+    const adminEmail = process.env.AUTHSTACK_ADMIN_EMAIL ?? 'test-admin@authstack.local'
+    const adminPassword = process.env.AUTHSTACK_ADMIN_PASSWORD ?? 'test-admin-password-123'
+
+    const loginRes = await fetch(`${baseUrl}/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email: adminEmail, password: adminPassword }).toString(),
+      redirect: 'manual',
+    })
+    expect(loginRes.status).toBe(303)
+    const adminCookie = loginRes.headers.get('set-cookie')!.split(';')[0]
+
+    const appRes = await fetch(`${baseUrl}/admin/applications`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: adminCookie,
+      },
+      body: JSON.stringify({ name: `other-app-${Date.now()}` }),
+    })
+    expect(appRes.ok).toBe(true)
+    const otherApp = await appRes.json() as { id: string; client_secret: string }
+
+    const auth = 'Basic ' + Buffer.from(`${otherApp.id}:${otherApp.client_secret}`).toString('base64')
+    const res = await fetch(`${baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: auth,
+      },
+      body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD }),
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 409 when signing up on another app in the same directory with an existing email', async () => {
+    const baseUrl = process.env.API_URL ?? 'http://localhost:8080'
+    const adminEmail = process.env.AUTHSTACK_ADMIN_EMAIL ?? 'test-admin@authstack.local'
+    const adminPassword = process.env.AUTHSTACK_ADMIN_PASSWORD ?? 'test-admin-password-123'
+
+    const loginRes = await fetch(`${baseUrl}/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email: adminEmail, password: adminPassword }).toString(),
+      redirect: 'manual',
+    })
+    const adminCookie = loginRes.headers.get('set-cookie')!.split(';')[0]
+
+    const appRes = await fetch(`${baseUrl}/admin/applications`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: adminCookie,
+      },
+      body: JSON.stringify({ name: `signup-block-${Date.now()}` }),
+    })
+    const otherApp = await appRes.json() as { id: string; client_secret: string }
+    const auth = 'Basic ' + Buffer.from(`${otherApp.id}:${otherApp.client_secret}`).toString('base64')
+
+    const res = await fetch(`${baseUrl}/auth/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: auth,
+      },
+      body: JSON.stringify({
+        name: 'Duplicate User',
+        email: TEST_EMAIL,
+        password: TEST_PASSWORD,
+      }),
+    })
+    expect(res.status).toBe(409)
   })
 })

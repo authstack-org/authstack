@@ -31,7 +31,7 @@
 <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
     <div>
         <h1 class="text-2xl font-semibold tracking-tight">{{ directory_name }}</h1>
-        <p class="text-sm text-muted-foreground">Directory identity boundary and administrators.</p>
+        <p class="text-sm text-muted-foreground">Directory identity boundary and administrators. Users in this directory share one identity across all applications here.</p>
     </div>
     {% if can_manage_operators %}
     <a href="/admin/directories/{{ directory_id }}/admins/new"
@@ -46,14 +46,10 @@
 {% endif %}
 
 <div class="mb-6 rounded-lg border bg-card p-6 shadow-sm">
-    <dl class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <dl class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
             <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Slug</dt>
             <dd class="mt-1"><code class="rounded bg-muted px-1.5 py-0.5 text-xs">{{ directory_slug }}</code></dd>
-        </div>
-        <div>
-            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Policy</dt>
-            <dd class="mt-1 text-sm">{{ policy_label }}</dd>
         </div>
         <div>
             <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Applications</dt>

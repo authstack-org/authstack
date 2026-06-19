@@ -96,9 +96,7 @@ async fn login(
         &state,
         &app.ctx,
         result.user.id,
-        result.org_id,
-        result.org_type,
-        &result.role,
+        result.org,
         &result.user.email,
     )
     .await
@@ -108,12 +106,14 @@ async fn issue_tokens(
     state: &AppState,
     ctx: &identity::AppContext,
     user_id: UserId,
-    org_id: OrganizationId,
-    org_type: crate::models::organization::OrgType,
-    role: &str,
+    org: Option<(OrganizationId, String)>,
     email: &str,
 ) -> Result<Json<TokenResponse>> {
-    let org_type_str = format!("{org_type:?}").to_lowercase();
+    let (org_id, role) = match org {
+        Some((org_id, role)) => (Some(org_id), Some(role)),
+        None => (None, None),
+    };
+
     let access_token = state
         .jwt
         .issue_access_token(
@@ -121,8 +121,7 @@ async fn issue_tokens(
             ctx.directory_id,
             ctx.application_id,
             org_id,
-            &org_type_str,
-            role,
+            role.as_deref(),
             email,
         )
         .map_err(AppError::Internal)?;
@@ -198,16 +197,15 @@ async fn refresh(
         .await
         .map_err(|_| AppError::Unauthorized("user not found".to_string()))?;
 
-    let (org_id, org_type, role) = match body.org_id {
+    let org = match body.org_id {
         Some(org_id) => {
-            let (org_type, role) =
-                me::membership_for_org(&state, app.app_id, user_id, org_id).await?;
-            (org_id, org_type, role)
+            let role = me::membership_for_org(&state, app.app_id, user_id, org_id).await?;
+            Some((org_id, role))
         }
-        None => identity::find_personal_membership(&state.db, &app.ctx, user_id).await?,
+        None => identity::find_primary_org_membership(&state.db, &app.ctx, user_id).await?,
     };
 
-    issue_tokens(&state, &app.ctx, user_id, org_id, org_type, &role, &email).await
+    issue_tokens(&state, &app.ctx, user_id, org, &email).await
 }
 
 async fn switch_org(
@@ -216,8 +214,7 @@ async fn switch_org(
     Json(body): Json<SwitchOrgRequest>,
 ) -> Result<Json<TokenResponse>> {
     let user = me::authenticate_user(&state, &headers).await?;
-    let (org_type, role) =
-        me::membership_for_org(&state, user.app_id, user.user_id, body.org_id).await?;
+    let role = me::membership_for_org(&state, user.app_id, user.user_id, body.org_id).await?;
 
     let email: String = sqlx::query_scalar(r#"SELECT email FROM "user" WHERE id = $1"#)
         .bind(user.user_id)
@@ -229,9 +226,7 @@ async fn switch_org(
         &state,
         &user.ctx,
         user.user_id,
-        body.org_id,
-        org_type,
-        &role,
+        Some((body.org_id, role)),
         &email,
     )
     .await
