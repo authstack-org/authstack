@@ -79,6 +79,8 @@ async fn create_org(
     body.validate()
         .map_err(|e| AppError::Validation(e.to_string()))?;
 
+    let mut tx = state.db.begin().await?;
+
     let org: Organization = sqlx::query_as(
         r#"INSERT INTO organization (id, directory_id, application_id, name, slug)
            VALUES ($1, $2, $3, $4, $5)
@@ -89,7 +91,7 @@ async fn create_org(
     .bind(app.app_id)
     .bind(&body.name)
     .bind(&body.slug)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| match e {
         sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
@@ -97,6 +99,12 @@ async fn create_org(
         }
         other => AppError::Internal(other.into()),
     })?;
+
+    crate::services::roles::seed_default_org_roles(&mut tx, org.id)
+        .await
+        .map_err(AppError::Internal)?;
+
+    tx.commit().await?;
 
     Ok(Json(org))
 }

@@ -9,7 +9,7 @@ use crate::{
     ids::{OrganizationId, RefreshSessionId, UserId},
     middleware::app_auth::AppIdentity,
     routes::me,
-    services::{auth as auth_service, identity},
+    services::{auth as auth_service, identity, roles},
 };
 
 #[derive(Debug, Deserialize, Validate)]
@@ -96,7 +96,7 @@ async fn login(
         &state,
         &app.ctx,
         result.user.id,
-        result.org,
+        result.membership,
         &result.user.email,
     )
     .await
@@ -106,12 +106,16 @@ async fn issue_tokens(
     state: &AppState,
     ctx: &identity::AppContext,
     user_id: UserId,
-    org: Option<(OrganizationId, String)>,
+    membership: Option<roles::OrgMembershipContext>,
     email: &str,
 ) -> Result<Json<TokenResponse>> {
-    let (org_id, role) = match org {
-        Some((org_id, role)) => (Some(org_id), Some(role)),
-        None => (None, None),
+    let (org_id, role, permissions) = match membership {
+        Some(m) => (
+            Some(m.org_id),
+            Some(m.role_slug),
+            Some(m.permissions),
+        ),
+        None => (None, None, None),
     };
 
     let access_token = state
@@ -122,6 +126,7 @@ async fn issue_tokens(
             ctx.application_id,
             org_id,
             role.as_deref(),
+            permissions.as_deref(),
             email,
         )
         .map_err(AppError::Internal)?;
@@ -197,15 +202,18 @@ async fn refresh(
         .await
         .map_err(|_| AppError::Unauthorized("user not found".to_string()))?;
 
-    let org = match body.org_id {
-        Some(org_id) => {
-            let role = me::membership_for_org(&state, app.app_id, user_id, org_id).await?;
-            Some((org_id, role))
-        }
-        None => identity::find_primary_org_membership(&state.db, &app.ctx, user_id).await?,
+    let membership = match body.org_id {
+        Some(org_id) => Some(
+            roles::membership_for_org(&state.db, app.app_id, user_id, org_id)
+                .await
+                .map_err(|_| AppError::Forbidden)?,
+        ),
+        None => roles::find_primary_org_membership(&state.db, app.app_id, user_id)
+            .await
+            .map_err(AppError::Internal)?,
     };
 
-    issue_tokens(&state, &app.ctx, user_id, org, &email).await
+    issue_tokens(&state, &app.ctx, user_id, membership, &email).await
 }
 
 async fn switch_org(
@@ -214,7 +222,9 @@ async fn switch_org(
     Json(body): Json<SwitchOrgRequest>,
 ) -> Result<Json<TokenResponse>> {
     let user = me::authenticate_user(&state, &headers).await?;
-    let role = me::membership_for_org(&state, user.app_id, user.user_id, body.org_id).await?;
+    let membership = roles::membership_for_org(&state.db, user.app_id, user.user_id, body.org_id)
+        .await
+        .map_err(|_| AppError::Forbidden)?;
 
     let email: String = sqlx::query_scalar(r#"SELECT email FROM "user" WHERE id = $1"#)
         .bind(user.user_id)
@@ -226,7 +236,7 @@ async fn switch_org(
         &state,
         &user.ctx,
         user.user_id,
-        Some((body.org_id, role)),
+        Some(membership),
         &email,
     )
     .await

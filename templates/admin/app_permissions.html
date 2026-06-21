@@ -1,0 +1,100 @@
+{% extends "admin/_layout.html" %}
+
+{% block title %}Permissions — {{ app_name }}{% endblock %}
+{% block nav_dashboard %}bg-accent text-accent-foreground{% endblock %}
+{% block nav_email %}{{ admin_email }}{% endblock %}
+{% block header_email %}{{ admin_email }}{% endblock %}
+
+{% block nav_directories_link %}
+{% if show_directories_nav %}
+<a href="/admin/directories" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Directories</a>
+{% endif %}
+{% endblock %}
+
+{% block nav_operators_link %}
+{% if can_manage_operators %}
+<a href="/admin/operators" class="flex items-center rounded-md px-3 py-2 font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Operators</a>
+{% endif %}
+{% endblock %}
+
+{% block nav_logout %}
+<form method="POST" action="/admin/logout">
+    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground">Sign out</button>
+</form>
+{% endblock %}
+
+{% block breadcrumb %}
+<nav class="mb-4 text-sm text-muted-foreground">
+    <a href="/admin/dashboard" class="hover:text-foreground">Applications</a>
+    <span class="mx-1">/</span>
+    <a href="/admin/apps/{{ app_id }}" class="hover:text-foreground">{{ app_name }}</a>
+    <span class="mx-1">/</span>
+    <span class="text-foreground">Permissions</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-semibold tracking-tight">App permissions</h1>
+    <p class="text-sm text-muted-foreground">Define permission keys for this application. Organization roles assign subsets of these permissions to members.</p>
+</div>
+
+{% if let Some(flash) = flash %}
+<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ flash }}</div>
+{% endif %}
+
+{% if let Some(error) = error %}
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error }}</div>
+{% endif %}
+
+<div class="mb-6 rounded-lg border bg-card p-6 shadow-sm">
+    <h2 class="mb-4 text-lg font-semibold">Add permission</h2>
+    <form method="POST" action="/admin/apps/{{ app_id }}/permissions" class="grid gap-4 sm:grid-cols-2">
+        <div class="space-y-2">
+            <label for="perm-key" class="text-sm font-medium">Key</label>
+            <input type="text" id="perm-key" name="key" required placeholder="invoice:write"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+            <p class="text-xs text-muted-foreground">Lowercase letters, digits, colons, hyphens, underscores.</p>
+        </div>
+        <div class="space-y-2">
+            <label for="perm-name" class="text-sm font-medium">Name</label>
+            <input type="text" id="perm-name" name="name" required placeholder="Write invoices"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+        </div>
+        <div class="space-y-2 sm:col-span-2">
+            <label for="perm-description" class="text-sm font-medium">Description (optional)</label>
+            <input type="text" id="perm-description" name="description"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+        </div>
+        <div class="sm:col-span-2">
+            <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Add permission</button>
+        </div>
+    </form>
+</div>
+
+<div class="rounded-lg border bg-card shadow-sm">
+    <div class="border-b px-6 py-4">
+        <h2 class="text-lg font-semibold">Defined permissions</h2>
+    </div>
+    {% if permissions.is_empty() %}
+    <p class="px-6 py-8 text-sm text-muted-foreground">No permissions yet. Add keys your app will check in JWT claims or via your backend.</p>
+    {% else %}
+    <div class="divide-y">
+        {% for perm in permissions %}
+        <div class="flex flex-wrap items-start justify-between gap-4 px-6 py-4">
+            <div>
+                <code class="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">{{ perm.key }}</code>
+                <p class="mt-1 text-sm font-medium">{{ perm.name }}</p>
+                {% if let Some(desc) = perm.description %}
+                <p class="mt-1 text-sm text-muted-foreground">{{ desc }}</p>
+                {% endif %}
+            </div>
+            <form method="POST" action="/admin/apps/{{ app_id }}/permissions/{{ perm.id }}/delete">
+                <button type="submit" class="inline-flex h-8 items-center justify-center rounded-md border border-red-200 bg-background px-3 text-xs font-medium text-red-700 hover:bg-red-50">Delete</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

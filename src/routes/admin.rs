@@ -16,7 +16,7 @@ use crate::{
     ids::{ApplicationId, DirectoryId, OrganizationId},
     services::admin_auth::AdminSession,
     models::admin_role::AdminRole,
-    services::{admin_access, admin_ops, auth as auth_service, identity, invites, password},
+    services::{admin_access, admin_ops, auth as auth_service, identity, invites, password, roles},
 };
 
 // ── Template structs ──────────────────────────────────────────────────────────
@@ -123,6 +123,20 @@ struct AppDetailTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "admin/app_permissions.html")]
+struct AppPermissionsTemplate {
+    admin_email: String,
+    is_instance_admin: bool,
+    can_manage_operators: bool,
+    show_directories_nav: bool,
+    app_id: String,
+    app_name: String,
+    permissions: Vec<AppPermissionDisplay>,
+    flash: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Template)]
 #[template(path = "admin/app_users.html")]
 struct AppUsersTemplate {
     admin_email: String,
@@ -198,9 +212,34 @@ struct OrgDetailTemplate {
     org_created_at: DateTime<Utc>,
     members: Vec<OrgMemberDisplay>,
     pending_invites: Vec<InviteDisplay>,
+    org_roles: Vec<OrgRoleDisplay>,
+    app_permissions: Vec<AppPermissionDisplay>,
     new_invite_url: Option<String>,
     error: Option<String>,
     flash: Option<String>,
+}
+
+struct OrgRoleDisplay {
+    id: String,
+    slug: String,
+    name: String,
+    description: Option<String>,
+    permission_assignments: Vec<PermissionAssignmentDisplay>,
+    member_count: i64,
+}
+
+struct PermissionAssignmentDisplay {
+    id: String,
+    key: String,
+    name: String,
+    checked: bool,
+}
+
+struct AppPermissionDisplay {
+    id: String,
+    key: String,
+    name: String,
+    description: Option<String>,
 }
 
 struct OrgRow {
@@ -375,6 +414,23 @@ pub fn protected_router() -> Router<AppState> {
         .route(
             "/admin/apps/{app_id}/orgs/{org_id}/invites",
             post(create_org_invite),
+        )
+        .route("/admin/apps/{app_id}/permissions", get(app_permissions_page).post(create_app_permission_admin))
+        .route(
+            "/admin/apps/{app_id}/permissions/{perm_id}/delete",
+            post(delete_app_permission_admin),
+        )
+        .route(
+            "/admin/apps/{app_id}/orgs/{org_id}/roles",
+            post(create_org_role_admin),
+        )
+        .route(
+            "/admin/apps/{app_id}/orgs/{org_id}/roles/{role_id}/update",
+            post(update_org_role_admin),
+        )
+        .route(
+            "/admin/apps/{app_id}/orgs/{org_id}/roles/{role_id}/delete",
+            post(delete_org_role_admin),
         )
         .route("/admin/applications", post(create_application_json))
 }
@@ -891,7 +947,8 @@ async fn create_app_user_invite(
             application_id: app_id,
             organization_id,
             email: &body.email,
-            role: body.role.as_deref().unwrap_or("member"),
+            org_role_id: None,
+            role_slug: body.role.as_deref(),
             name: body.name.as_deref(),
             expiry_secs: state.config.invite_expiry_secs,
         },
@@ -1239,6 +1296,24 @@ async fn build_org_detail_page(
         Err(e) => return AppError::Internal(e).into_response(),
     };
 
+    let app_permissions: Vec<AppPermissionDisplay> = match roles::list_app_permissions(&state.db, app.id).await {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|p| AppPermissionDisplay {
+                id: p.id.to_string(),
+                key: p.key,
+                name: p.name,
+                description: p.description,
+            })
+            .collect(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org_roles = match load_org_role_displays(&state.db, org_id, &app_permissions).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
     render(OrgDetailTemplate {
         admin_email: identity.email.clone(),
         is_instance_admin: identity.is_instance_admin(),
@@ -1259,15 +1334,23 @@ async fn build_org_detail_page(
                 created_at: m.created_at,
             })
             .collect(),
-        pending_invites: pending
-            .into_iter()
-            .map(|inv| InviteDisplay {
-                email: inv.email,
-                role: inv.role,
-                invite_url: invites::invite_url(&state.config.public_base_url, &inv.token),
-                expires_at: inv.expires_at,
-            })
-            .collect(),
+        pending_invites: {
+            let mut out = Vec::new();
+            for inv in pending {
+                let role = invites::invite_role_slug(&state.db, inv.org_role_id)
+                    .await
+                    .unwrap_or_else(|_| "member".to_string());
+                out.push(InviteDisplay {
+                    email: inv.email,
+                    role,
+                    invite_url: invites::invite_url(&state.config.public_base_url, &inv.token),
+                    expires_at: inv.expires_at,
+                });
+            }
+            out
+        },
+        org_roles,
+        app_permissions,
         new_invite_url,
         error,
         flash,
@@ -1328,7 +1411,8 @@ async fn create_org_invite(
             application_id: app_id,
             organization_id,
             email: &body.email,
-            role: body.role.as_deref().unwrap_or("member"),
+            org_role_id: None,
+            role_slug: body.role.as_deref(),
             name: body.name.as_deref(),
             expiry_secs: state.config.invite_expiry_secs,
         },
@@ -1400,9 +1484,16 @@ async fn add_org_member(
         return render_org_detail_error(&state, &identity, &app, &org, "Select a user to add.").await;
     }
 
-    let role = body.role.unwrap_or_else(|| "member".to_string());
-
-    match admin_ops::add_org_member(&state.db, app_id, &org_id, &user_id, &role).await {
+    match admin_ops::add_org_member(
+        &state.db,
+        app_id,
+        &org_id,
+        &user_id,
+        None,
+        body.role.as_deref(),
+    )
+    .await
+    {
         Ok(()) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org_id)).into_response(),
         Err(e) if e.to_string().contains("23505") => {
             render_org_detail_error(
@@ -2019,6 +2110,344 @@ async fn create_application_json(
             name,
         }),
     ))
+}
+
+async fn load_org_role_displays(
+    db: &sqlx::PgPool,
+    organization_id: OrganizationId,
+    app_permissions: &[AppPermissionDisplay],
+) -> std::result::Result<Vec<OrgRoleDisplay>, anyhow::Error> {
+    let org_roles = roles::list_org_roles(db, organization_id).await?;
+    let mut out = Vec::with_capacity(org_roles.len());
+    for role in org_roles {
+        let permission_ids = roles::list_org_role_permission_ids(db, role.id).await?;
+        let permission_assignments = app_permissions
+            .iter()
+            .map(|perm| PermissionAssignmentDisplay {
+                id: perm.id.clone(),
+                key: perm.key.clone(),
+                name: perm.name.clone(),
+                checked: permission_ids.iter().any(|id| id.to_string() == perm.id),
+            })
+            .collect();
+        let member_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM member WHERE org_role_id = $1",
+        )
+        .bind(role.id)
+        .fetch_one(db)
+        .await?;
+        out.push(OrgRoleDisplay {
+            id: role.id.to_string(),
+            slug: role.slug,
+            name: role.name,
+            description: role.description,
+            permission_assignments,
+            member_count,
+        });
+    }
+    Ok(out)
+}
+
+async fn app_permissions_page(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render_app_permissions_page(&state, &identity, &app, None, None).await
+}
+
+async fn render_app_permissions_page(
+    state: &AppState,
+    identity: &AdminSession,
+    app: &admin_ops::ApplicationSummary,
+    flash: Option<String>,
+    error: Option<String>,
+) -> Response {
+    let nav = nav_context(identity);
+    let permissions = match roles::list_app_permissions(&state.db, app.id).await {
+        Ok(rows) => rows,
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    render(AppPermissionsTemplate {
+        admin_email: nav.admin_email,
+        is_instance_admin: nav.is_instance_admin,
+        can_manage_operators: nav.can_manage_operators,
+        show_directories_nav: nav.show_directories_nav,
+        app_id: app.id.to_string(),
+        app_name: app.name.clone(),
+        permissions: permissions
+            .into_iter()
+            .map(|p| AppPermissionDisplay {
+                id: p.id.to_string(),
+                key: p.key,
+                name: p.name,
+                description: p.description,
+            })
+            .collect(),
+        flash,
+        error,
+    })
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateAppPermissionForm {
+    key: String,
+    name: String,
+    description: Option<String>,
+}
+
+async fn create_app_permission_admin(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path(app_id): Path<String>,
+    Form(body): Form<CreateAppPermissionForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    match roles::create_app_permission(
+        &state.db,
+        app_id,
+        &body.key,
+        &body.name,
+        body.description.as_deref(),
+    )
+    .await
+    {
+        Ok(_) => {
+            render_app_permissions_page(
+                &state,
+                &identity,
+                &app,
+                Some(format!("Permission `{}` created.", body.key.trim())),
+                None,
+            )
+            .await
+        }
+        Err(e) => {
+            render_app_permissions_page(&state, &identity, &app, None, Some(e.to_string())).await
+        }
+    }
+}
+
+async fn delete_app_permission_admin(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, perm_id)): Path<(String, String)>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
+    }
+
+    let perm_id: crate::ids::AppPermissionId = match perm_id.parse() {
+        Ok(id) => id,
+        Err(_) => return Redirect::to(&format!("/admin/apps/{app_id}/permissions")).into_response(),
+    };
+
+    let _ = roles::delete_app_permission(&state.db, app_id, perm_id).await;
+    Redirect::to(&format!("/admin/apps/{app_id}/permissions")).into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateOrgRoleForm {
+    slug: String,
+    name: String,
+    description: Option<String>,
+}
+
+async fn create_org_role_admin(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, org_id)): Path<(String, String)>,
+    Form(body): Form<CreateOrgRoleForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org = match admin_ops::get_org_for_app(&state.db, app_id, &org_id).await {
+        Ok(Some(o)) => o,
+        Ok(None) => return Redirect::to(&format!("/admin/apps/{}/orgs", app.id)).into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let organization_id: OrganizationId = match org_id.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return render_org_detail_error(&state, &identity, &app, &org, "Invalid organization id.")
+                .await;
+        }
+    };
+
+    match roles::create_org_role(
+        &state.db,
+        organization_id,
+        &body.slug,
+        &body.name,
+        body.description.as_deref(),
+        &[],
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org_id)).into_response(),
+        Err(e) => render_org_detail_error(&state, &identity, &app, &org, &e.to_string()).await,
+    }
+}
+
+#[derive(Deserialize)]
+struct UpdateOrgRoleForm {
+    name: String,
+    description: Option<String>,
+    permission_ids: Vec<String>,
+}
+
+async fn update_org_role_admin(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, org_id, role_id)): Path<(String, String, String)>,
+    Form(body): Form<UpdateOrgRoleForm>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org = match admin_ops::get_org_for_app(&state.db, app_id, &org_id).await {
+        Ok(Some(o)) => o,
+        Ok(None) => return Redirect::to(&format!("/admin/apps/{}/orgs", app.id)).into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let organization_id: OrganizationId = match org_id.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return render_org_detail_error(&state, &identity, &app, &org, "Invalid organization id.")
+                .await;
+        }
+    };
+
+    let role_id: crate::ids::OrgRoleId = match role_id.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return render_org_detail_error(&state, &identity, &app, &org, "Invalid role id.").await;
+        }
+    };
+
+    let permission_ids: Vec<crate::ids::AppPermissionId> = body
+        .permission_ids
+        .iter()
+        .filter_map(|s| s.parse().ok())
+        .collect();
+
+    match roles::update_org_role(
+        &state.db,
+        organization_id,
+        role_id,
+        Some(&body.name),
+        Some(body.description.as_deref()),
+        Some(&permission_ids),
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org_id)).into_response(),
+        Err(e) => render_org_detail_error(&state, &identity, &app, &org, &e.to_string()).await,
+    }
+}
+
+async fn delete_org_role_admin(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AdminSession>,
+    Path((app_id, org_id, role_id)): Path<(String, String, String)>,
+) -> Response {
+    let app_id = match parse_app_id(&app_id) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_app_access(&state.db, &identity, app_id).await {
+        return resp;
+    }
+
+    let app = match admin_ops::get_application_summary(&state.db, app_id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return Redirect::to("/admin/dashboard").into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let org = match admin_ops::get_org_for_app(&state.db, app_id, &org_id).await {
+        Ok(Some(o)) => o,
+        Ok(None) => return Redirect::to(&format!("/admin/apps/{}/orgs", app.id)).into_response(),
+        Err(e) => return AppError::Internal(e).into_response(),
+    };
+
+    let organization_id: OrganizationId = match org_id.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return render_org_detail_error(&state, &identity, &app, &org, "Invalid organization id.")
+                .await;
+        }
+    };
+
+    let role_id: crate::ids::OrgRoleId = match role_id.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            return render_org_detail_error(&state, &identity, &app, &org, "Invalid role id.").await;
+        }
+    };
+
+    match roles::delete_org_role(&state.db, organization_id, role_id).await {
+        Ok(_) => Redirect::to(&format!("/admin/apps/{}/orgs/{}", app.id, org_id)).into_response(),
+        Err(e) => render_org_detail_error(&state, &identity, &app, &org, &e.to_string()).await,
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

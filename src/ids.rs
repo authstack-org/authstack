@@ -85,3 +85,5 @@ define_id!(AccountId, AccountType, "acct");
 define_id!(RefreshSessionId, RefreshSessionType, "rsess");
 define_id!(AdminUserId, AdminUserType, "adm");
 define_id!(InviteId, InviteType, "inv");
+define_id!(AppPermissionId, AppPermissionType, "perm");
+define_id!(OrgRoleId, OrgRoleType, "orole");

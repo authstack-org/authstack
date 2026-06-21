@@ -17,6 +17,8 @@ pub struct AccessTokenClaims {
     pub org_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<Vec<String>>,
     pub email: String,
     pub jti: String,
     pub iat: i64,
@@ -90,6 +92,7 @@ impl JwtService {
         app_id: ApplicationId,
         org_id: Option<OrganizationId>,
         role: Option<&str>,
+        permissions: Option<&[String]>,
         email: &str,
     ) -> Result<String> {
         let now = Utc::now().timestamp();
@@ -99,6 +102,7 @@ impl JwtService {
             app_id: app_id.to_string(),
             org_id: org_id.map(|id| id.to_string()),
             role: role.map(|r| r.to_string()),
+            permissions: permissions.map(|p| p.to_vec()),
             email: email.to_string(),
             jti: Uuid::new_v4().to_string(),
             iat: now,
@@ -201,6 +205,7 @@ mod tests {
                 ApplicationId::new(),
                 Some(OrganizationId::new()),
                 Some("member"),
+                Some(&["org:read".to_string()]),
                 "a@b.com",
             )
             .unwrap();

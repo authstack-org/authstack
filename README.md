@@ -19,7 +19,7 @@ Mobile / Web  →  App Backend (BFF)  →  Authstack
                  holds client_secret     issues JWTs
 ```
 
-On signup, Authstack creates the user in the directory and a **user app grant** for the signing-in application. Organizations are created explicitly when your app needs tenants or teams. The JWT includes `app_id`, `directory_id`, and optionally `org_id` and `role` when the user has org membership.
+On signup, Authstack creates the user in the directory and a **user app grant** for the signing-in application. Organizations are created explicitly when your app needs tenants or teams. The JWT includes `app_id`, `directory_id`, and optionally `org_id`, `role`, and `permissions` when the user has org membership.
 
 ## Prerequisites
 
@@ -254,6 +254,7 @@ The access token payload includes:
   "app_id": "app_01j4hz0r3fexwpbgm41z1w57at",
   "org_id": "org_01j4hz0r3fexwpbgm41z1w57at",
   "role": "member",
+  "permissions": ["org:invite"],
   "email": "alice@example.com",
   "jti": "<uuid>",
   "iat": 1234567890,
@@ -261,9 +262,9 @@ The access token payload includes:
 }
 ```
 
-`org_id` and `role` are omitted when the user has no organization membership in the application.
+`org_id`, `role`, and `permissions` are omitted when the user has no organization membership in the application.
 
-All entity IDs are TypeIDs — a prefixed, sortable identifier format. Prefixes: `app_` (application), `usr_` (user), `org_` (organization), `mbr_` (member), `acct_` (account), `rsess_` (refresh session), `adm_` (admin user).
+All entity IDs are TypeIDs — a prefixed, sortable identifier format. Prefixes: `app_` (application), `usr_` (user), `org_` (organization), `mbr_` (member), `perm_` (app permission), `orole_` (org role), `acct_` (account), `rsess_` (refresh session), `adm_` (admin user).
 
 ### Users
 
@@ -287,6 +288,25 @@ All entity IDs are TypeIDs — a prefixed, sortable identifier format. Prefixes:
 | `GET` | `/orgs/:id/members` | List members of an organization |
 | `POST` | `/orgs/:id/members` | Add a user to an organization |
 | `DELETE` | `/orgs/:id/members/:user_id` | Remove a user from an organization |
+
+### Permissions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/permissions` | List app permission catalog |
+| `POST` | `/permissions` | Create an app permission |
+| `GET` | `/permissions/:id` | Get a permission by ID |
+| `DELETE` | `/permissions/:id` | Delete a permission |
+
+### Organization roles
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/orgs/:id/roles` | List roles for an organization |
+| `POST` | `/orgs/:id/roles` | Create a custom org role |
+| `GET` | `/orgs/:id/roles/:role_id` | Get a role by ID |
+| `PATCH` | `/orgs/:id/roles/:role_id` | Update a role |
+| `DELETE` | `/orgs/:id/roles/:role_id` | Delete a role |
 
 ### JWKS
 

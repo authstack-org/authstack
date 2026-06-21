@@ -7,3 +7,4 @@ pub mod identity;
 pub mod invites;
 pub mod jwt;
 pub mod password;
+pub mod roles;

@@ -420,18 +420,26 @@ pub async fn create_team_org(
         anyhow::bail!("organization slug is required");
     }
 
+    let org_id = OrganizationId::new();
+
+    let mut tx = db.begin().await?;
+
     let row: (String, String, String, DateTime<Utc>) = sqlx::query_as(
         r#"INSERT INTO organization (id, directory_id, application_id, name, slug)
            VALUES ($1, $2, $3, $4, $5)
            RETURNING id, name, slug, created_at"#,
     )
-    .bind(OrganizationId::new())
+    .bind(org_id)
     .bind(ctx.directory_id)
     .bind(app_id)
     .bind(name)
     .bind(slug)
-    .fetch_one(db)
+    .fetch_one(&mut *tx)
     .await?;
+
+    crate::services::roles::seed_default_org_roles(&mut tx, org_id).await?;
+
+    tx.commit().await?;
 
     Ok(OrgDetail {
         id: row.0,
@@ -477,9 +485,10 @@ pub async fn get_org_for_app(
 
 pub async fn list_org_members(db: &PgPool, org_id: &str) -> Result<Vec<OrgMemberRow>> {
     let rows: Vec<(String, String, String, String, String, DateTime<Utc>)> = sqlx::query_as(
-        r#"SELECT m.id, m.user_id, u.name, u.email, m.role, m.created_at
+        r#"SELECT m.id, m.user_id, u.name, u.email, r.slug, m.created_at
            FROM member m
            JOIN "user" u ON u.id = m.user_id
+           JOIN org_role r ON r.id = m.org_role_id
            WHERE m.organization_id = $1
            ORDER BY m.created_at ASC"#,
     )
@@ -505,12 +514,17 @@ pub async fn add_org_member(
     app_id: ApplicationId,
     org_id: &str,
     user_id: &str,
-    role: &str,
+    org_role_id: Option<crate::ids::OrgRoleId>,
+    role_slug: Option<&str>,
 ) -> Result<()> {
     let org = get_org_for_app(db, app_id, org_id).await?;
     let Some(_org) = org else {
         anyhow::bail!("organization not found");
     };
+
+    let org_id_parsed: OrganizationId = org_id
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid organization id"))?;
 
     let user_id_parsed: crate::ids::UserId = user_id
         .parse()
@@ -523,16 +537,22 @@ pub async fn add_org_member(
         anyhow::bail!("user not found in this application");
     }
 
-    let role = if role.trim().is_empty() { "member" } else { role.trim() };
+    let org_role = crate::services::roles::resolve_org_role(
+        db,
+        org_id_parsed,
+        org_role_id,
+        role_slug,
+    )
+    .await?;
     let member_id = crate::ids::MemberId::new();
 
     sqlx::query(
-        "INSERT INTO member (id, organization_id, user_id, role) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO member (id, organization_id, user_id, org_role_id) VALUES ($1, $2, $3, $4)",
     )
     .bind(member_id)
     .bind(org_id)
     .bind(user_id)
-    .bind(role)
+    .bind(org_role.id)
     .execute(db)
     .await?;
 

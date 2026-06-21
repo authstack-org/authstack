@@ -5,7 +5,7 @@ describe('Members', () => {
   it('adds a member to an organization', async () => {
     const { status } = await api.post(`/orgs/${ctx.orgId}/members`, {
       user_id: ctx.userId,
-      role:    'member',
+      org_role_id: ctx.memberRoleId,
     })
     expect(status).toBe(200)
   })
@@ -16,6 +16,7 @@ describe('Members', () => {
     )
     expect(status).toBe(200)
     expect(body.some((m) => m.user_id === ctx.userId && m.role === 'member')).toBe(true)
+    expect(body.some((m) => m.org_role_id === ctx.memberRoleId)).toBe(true)
   })
 
   it('removes a member from an organization', async () => {

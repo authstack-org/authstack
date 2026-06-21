@@ -47,6 +47,19 @@ CREATE TABLE tenant.user_app_grant (
 
 CREATE INDEX idx_user_app_grant_application_id ON tenant.user_app_grant(application_id);
 
+CREATE TABLE tenant.app_permission (
+    id TEXT PRIMARY KEY,
+    application_id TEXT NOT NULL REFERENCES tenant.application(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT app_permission_application_key_unique UNIQUE (application_id, key)
+);
+
+CREATE INDEX idx_app_permission_application_id ON tenant.app_permission(application_id);
+
 CREATE TABLE tenant.organization (
     id TEXT PRIMARY KEY,
     directory_id TEXT NOT NULL REFERENCES tenant.directory(id) ON DELETE CASCADE,
@@ -62,11 +75,33 @@ CREATE TABLE tenant.organization (
 CREATE INDEX idx_organization_directory_id ON tenant.organization(directory_id);
 CREATE INDEX idx_organization_application_id ON tenant.organization(application_id);
 
+CREATE TABLE tenant.org_role (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL REFERENCES tenant.organization(id) ON DELETE CASCADE,
+    slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT org_role_organization_slug_unique UNIQUE (organization_id, slug)
+);
+
+CREATE INDEX idx_org_role_organization_id ON tenant.org_role(organization_id);
+
+CREATE TABLE tenant.org_role_permission (
+    org_role_id TEXT NOT NULL REFERENCES tenant.org_role(id) ON DELETE CASCADE,
+    app_permission_id TEXT NOT NULL REFERENCES tenant.app_permission(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (org_role_id, app_permission_id)
+);
+
+CREATE INDEX idx_org_role_permission_app_permission_id ON tenant.org_role_permission(app_permission_id);
+
 CREATE TABLE tenant.member (
     id TEXT PRIMARY KEY,
     organization_id TEXT NOT NULL REFERENCES tenant.organization(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES tenant."user"(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'member',
+    org_role_id TEXT NOT NULL REFERENCES tenant.org_role(id) ON DELETE RESTRICT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT member_org_user_unique UNIQUE (organization_id, user_id)
@@ -102,7 +137,7 @@ CREATE TABLE tenant.app_invite (
     application_id TEXT NOT NULL REFERENCES tenant.application(id) ON DELETE CASCADE,
     organization_id TEXT NOT NULL REFERENCES tenant.organization(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'member',
+    org_role_id TEXT NOT NULL REFERENCES tenant.org_role(id) ON DELETE RESTRICT,
     name TEXT,
     expires_at TIMESTAMPTZ NOT NULL,
     accepted_at TIMESTAMPTZ,

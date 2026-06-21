@@ -39,6 +39,7 @@ struct AcceptSuccessTemplate {
 #[derive(Debug, Deserialize)]
 pub struct CreateInviteRequest {
     pub email: String,
+    pub org_role_id: Option<crate::ids::OrgRoleId>,
     pub role: Option<String>,
     pub name: Option<String>,
 }
@@ -81,14 +82,14 @@ pub fn app_router() -> Router<AppState> {
     )
 }
 
-fn to_invite_response(invite: AppInvite, public_base_url: &str) -> InviteResponse {
+fn to_invite_response(invite: AppInvite, role: &str, public_base_url: &str) -> InviteResponse {
     InviteResponse {
         id: invite.id.to_string(),
         token: invite.token.clone(),
         invite_url: invites::invite_url(public_base_url, &invite.token),
         email: invite.email,
         organization_id: invite.organization_id.to_string(),
-        role: invite.role,
+        role: role.to_string(),
         expires_at: invite.expires_at,
     }
 }
@@ -105,11 +106,12 @@ async fn create_invite(
 
     let invite = invites::create_invite(
         &state.db,
-        CreateInviteInput {
+        invites::CreateInviteInput {
             application_id: app.app_id,
             organization_id: org_id,
             email: &body.email,
-            role: body.role.as_deref().unwrap_or("member"),
+            org_role_id: body.org_role_id,
+            role_slug: body.role.as_deref(),
             name: body.name.as_deref(),
             expiry_secs: state.config.invite_expiry_secs,
         },
@@ -117,8 +119,13 @@ async fn create_invite(
     .await
     .map_err(|e| AppError::Validation(e.to_string()))?;
 
+    let role = invites::invite_role_slug(&state.db, invite.org_role_id)
+        .await
+        .map_err(AppError::Internal)?;
+
     Ok(Json(to_invite_response(
         invite,
+        &role,
         &state.config.public_base_url,
     )))
 }
@@ -136,11 +143,15 @@ async fn list_invites(
         .await
         .map_err(AppError::Internal)?;
 
-    Ok(Json(
-        rows.into_iter()
-            .map(|inv| to_invite_response(inv, &state.config.public_base_url))
-            .collect(),
-    ))
+    let mut out = Vec::with_capacity(rows.len());
+    for inv in rows {
+        let role = invites::invite_role_slug(&state.db, inv.org_role_id)
+            .await
+            .map_err(AppError::Internal)?;
+        out.push(to_invite_response(inv, &role, &state.config.public_base_url));
+    }
+
+    Ok(Json(out))
 }
 
 async fn accept_page(State(state): State<AppState>, Path(token): Path<String>) -> Response {

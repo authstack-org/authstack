@@ -69,3 +69,17 @@ impl IntoResponse for AppError {
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;
+
+/// Returns true when `err` (or any source in its chain) is a Postgres unique violation.
+pub fn is_unique_violation(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = current {
+        if let Some(sqlx::Error::Database(db_err)) = e.downcast_ref::<sqlx::Error>() {
+            if db_err.code().as_deref() == Some("23505") {
+                return true;
+            }
+        }
+        current = e.source();
+    }
+    false
+}

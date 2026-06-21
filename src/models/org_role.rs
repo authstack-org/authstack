@@ -1,14 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{MemberId, OrgRoleId, OrganizationId, UserId};
+use crate::ids::{OrgRoleId, OrganizationId};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Member {
-    pub id: MemberId,
+pub struct OrgRole {
+    pub id: OrgRoleId,
     pub organization_id: OrganizationId,
-    pub user_id: UserId,
-    pub org_role_id: OrgRoleId,
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

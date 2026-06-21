@@ -51,7 +51,7 @@ pub async fn signup(
 
 pub struct LoginResult {
     pub user: User,
-    pub org: Option<(OrganizationId, String)>,
+    pub membership: Option<crate::services::roles::OrgMembershipContext>,
 }
 
 pub async fn login(
@@ -79,7 +79,10 @@ pub async fn login(
         return Err(AppError::Unauthorized("invalid credentials".to_string()));
     }
 
-    let org = identity::find_primary_org_membership(db, ctx, user.id).await?;
+    let membership =
+        crate::services::roles::find_primary_org_membership(db, ctx.application_id, user.id)
+            .await
+            .map_err(AppError::Internal)?;
 
-    Ok(LoginResult { user, org })
+    Ok(LoginResult { user, membership })
 }

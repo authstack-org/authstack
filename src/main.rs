@@ -83,6 +83,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::auth::router())
         .merge(routes::users::router())
         .merge(routes::orgs::router())
+        .merge(routes::permissions::router())
+        .merge(routes::org_roles::router())
         .merge(routes::members::router())
         .merge(routes::invites::app_router())
         .layer(axum::middleware::from_fn_with_state(

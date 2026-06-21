@@ -26,6 +26,7 @@ pub struct UserIdentity {
 pub struct UserOrganization {
     pub organization: Organization,
     pub role: String,
+    pub permissions: Vec<String>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -80,7 +81,11 @@ async fn list_my_organizations(
 
     Ok(Json(
         orgs.into_iter()
-            .map(|(organization, role)| UserOrganization { organization, role })
+            .map(|(organization, role, permissions)| UserOrganization {
+                organization,
+                role,
+                permissions,
+            })
             .collect(),
     ))
 }
@@ -90,10 +95,8 @@ pub async fn membership_for_org(
     app_id: ApplicationId,
     user_id: UserId,
     org_id: crate::ids::OrganizationId,
-) -> Result<String> {
-    let ctx = identity::load_app_context(&state.db, app_id)
-        .await?
-        .ok_or_else(|| AppError::Unauthorized("invalid application".to_string()))?;
-
-    identity::membership_for_org(&state.db, &ctx, user_id, org_id).await
+) -> Result<crate::services::roles::OrgMembershipContext> {
+    crate::services::roles::membership_for_org(&state.db, app_id, user_id, org_id)
+        .await
+        .map_err(|_| AppError::Forbidden)
 }

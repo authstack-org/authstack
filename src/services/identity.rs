@@ -125,32 +125,11 @@ pub async fn get_default_directory_id(db: &PgPool) -> AppResult<DirectoryId> {
 }
 
 /// First organization membership for the user in this application, if any.
-pub async fn find_primary_org_membership(
-    db: &PgPool,
-    ctx: &AppContext,
-    user_id: UserId,
-) -> AppResult<Option<(OrganizationId, String)>> {
-    let row: Option<(OrganizationId, String)> = sqlx::query_as(
-        r#"SELECT m.organization_id, m.role
-           FROM member m
-           INNER JOIN organization o ON o.id = m.organization_id
-           WHERE m.user_id = $1 AND o.application_id = $2
-           ORDER BY m.created_at ASC
-           LIMIT 1"#,
-    )
-    .bind(user_id)
-    .bind(ctx.application_id)
-    .fetch_optional(db)
-    .await?;
-
-    Ok(row)
-}
-
 pub async fn list_organizations_for_user(
     db: &PgPool,
     ctx: &AppContext,
     user_id: UserId,
-) -> AppResult<Vec<(crate::models::organization::Organization, String)>> {
+) -> AppResult<Vec<(crate::models::organization::Organization, String, Vec<String>)>> {
     #[derive(sqlx::FromRow)]
     struct Row {
         id: OrganizationId,
@@ -161,14 +140,16 @@ pub async fn list_organizations_for_user(
         logo: Option<String>,
         created_at: chrono::DateTime<chrono::Utc>,
         updated_at: chrono::DateTime<chrono::Utc>,
+        org_role_id: crate::ids::OrgRoleId,
         role: String,
     }
 
     let rows: Vec<Row> = sqlx::query_as(
         r#"SELECT o.id, o.directory_id, o.application_id, o.name, o.slug, o.logo,
-                  o.created_at, o.updated_at, m.role
+                  o.created_at, o.updated_at, m.org_role_id, r.slug AS role
            FROM member m
            JOIN organization o ON o.id = m.organization_id
+           JOIN org_role r ON r.id = m.org_role_id
            WHERE m.user_id = $1 AND o.application_id = $2
            ORDER BY o.created_at ASC"#,
     )
@@ -177,47 +158,27 @@ pub async fn list_organizations_for_user(
     .fetch_all(db)
     .await?;
 
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (
-                crate::models::organization::Organization {
-                    id: row.id,
-                    directory_id: row.directory_id,
-                    application_id: row.application_id,
-                    name: row.name,
-                    slug: row.slug,
-                    logo: row.logo,
-                    created_at: row.created_at,
-                    updated_at: row.updated_at,
-                },
-                row.role,
-            )
-        })
-        .collect())
-}
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let permissions =
+            crate::services::roles::list_permission_keys_for_org_role(db, row.org_role_id).await?;
+        out.push((
+            crate::models::organization::Organization {
+                id: row.id,
+                directory_id: row.directory_id,
+                application_id: row.application_id,
+                name: row.name,
+                slug: row.slug,
+                logo: row.logo,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            },
+            row.role,
+            permissions,
+        ));
+    }
 
-pub async fn membership_for_org(
-    db: &PgPool,
-    ctx: &AppContext,
-    user_id: UserId,
-    org_id: OrganizationId,
-) -> AppResult<String> {
-    let row: Option<String> = sqlx::query_scalar(
-        r#"SELECT m.role
-           FROM member m
-           JOIN organization o ON o.id = m.organization_id
-           WHERE m.user_id = $1
-             AND o.id = $2
-             AND o.application_id = $3"#,
-    )
-    .bind(user_id)
-    .bind(org_id)
-    .bind(ctx.application_id)
-    .fetch_optional(db)
-    .await?;
-
-    row.ok_or(AppError::Forbidden)
+    Ok(out)
 }
 
 /// SQL fragment: organizations visible within an application context.

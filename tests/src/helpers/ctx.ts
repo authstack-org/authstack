@@ -16,6 +16,9 @@ export interface TestCtx {
   // Created during tests
   userId?:      string
   orgId?:       string
+  permissionId?: string
+  memberRoleId?: string
+  customRoleId?: string
   accessToken?: string
   refreshToken?: string
 }

@@ -62,6 +62,88 @@
 </div>
 
 <div class="mb-6 rounded-lg border bg-card p-6 shadow-sm">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div>
+            <h2 class="text-lg font-semibold">Organization roles</h2>
+            <p class="text-sm text-muted-foreground">Roles bundle <a href="/admin/apps/{{ app_id }}/permissions" class="underline hover:text-foreground">app permissions</a> for members of this organization.</p>
+        </div>
+    </div>
+
+    {% if app_permissions.is_empty() %}
+    <p class="mb-4 text-sm text-amber-800 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">Define app permissions first, then assign them to roles below.</p>
+    {% endif %}
+
+    <form method="POST" action="/admin/apps/{{ app_id }}/orgs/{{ org_id }}/roles" class="mb-6 grid gap-4 border-b pb-6 sm:grid-cols-3">
+        <div class="space-y-2">
+            <label for="role-slug" class="text-sm font-medium">Slug</label>
+            <input type="text" id="role-slug" name="slug" required placeholder="billing-admin"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+        </div>
+        <div class="space-y-2">
+            <label for="role-name" class="text-sm font-medium">Name</label>
+            <input type="text" id="role-name" name="name" required placeholder="Billing Admin"
+                   class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+        </div>
+        <div class="flex items-end">
+            <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Add role</button>
+        </div>
+    </form>
+
+    {% if org_roles.is_empty() %}
+    <p class="text-sm text-muted-foreground">No roles defined.</p>
+    {% else %}
+    <div class="space-y-4">
+        {% for role in org_roles %}
+        <div class="rounded-md border p-4">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <span class="font-medium">{{ role.name }}</span>
+                    <code class="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs">{{ role.slug }}</code>
+                    <p class="mt-1 text-xs text-muted-foreground">{{ role.member_count }} member(s)</p>
+                </div>
+                {% if role.member_count == 0 %}
+                <form method="POST" action="/admin/apps/{{ app_id }}/orgs/{{ org_id }}/roles/{{ role.id }}/delete">
+                    <button type="submit" class="text-xs font-medium text-red-600 hover:text-red-700">Delete</button>
+                </form>
+                {% endif %}
+            </div>
+            <form method="POST" action="/admin/apps/{{ app_id }}/orgs/{{ org_id }}/roles/{{ role.id }}/update" class="mt-4 space-y-3">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium">Display name</label>
+                        <input type="text" name="name" value="{{ role.name }}" required
+                               class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium">Description</label>
+                        <input type="text" name="description" value="{% match role.description %}{% when Some with (d) %}{{ d }}{% when None %}{% endmatch %}"
+                               class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+                    </div>
+                </div>
+                {% if !app_permissions.is_empty() %}
+                <div class="space-y-2">
+                    <p class="text-sm font-medium">Permissions</p>
+                    <div class="flex flex-wrap gap-3">
+                        {% for perm in role.permission_assignments %}
+                        <label class="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" name="permission_ids" value="{{ perm.id }}"
+                                   {% if perm.checked %}checked{% endif %}
+                                   class="rounded border-input">
+                            <code class="text-xs">{{ perm.key }}</code>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                <button type="submit" class="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm hover:bg-accent">Save role</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="mb-6 rounded-lg border bg-card p-6 shadow-sm">
     <h2 class="mb-4 text-lg font-semibold">Invite by email</h2>
     <p class="mb-4 text-sm text-muted-foreground">Create an invite link to share manually. Authstack does not send email yet.</p>
     <form method="POST" action="/admin/apps/{{ app_id }}/orgs/{{ org_id }}/invites" class="space-y-4">
@@ -80,9 +162,9 @@
         <div class="space-y-2">
             <label for="invite-role" class="text-sm font-medium">Role</label>
             <select id="invite-role" name="role" class="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
-                <option value="member">member</option>
-                <option value="admin">admin</option>
-                <option value="owner">owner</option>
+                {% for role in org_roles %}
+                <option value="{{ role.slug }}" {% if role.slug == "member" %}selected{% endif %}>{{ role.name }} ({{ role.slug }})</option>
+                {% endfor %}
             </select>
         </div>
         <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Create invite link</button>
@@ -122,9 +204,9 @@
         <div class="space-y-2">
             <label for="role" class="text-sm font-medium">Role</label>
             <select id="role" name="role" class="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
-                <option value="member">member</option>
-                <option value="admin">admin</option>
-                <option value="owner">owner</option>
+                {% for role in org_roles %}
+                <option value="{{ role.slug }}" {% if role.slug == "member" %}selected{% endif %}>{{ role.name }} ({{ role.slug }})</option>
+                {% endfor %}
             </select>
         </div>
         <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">Add member</button>

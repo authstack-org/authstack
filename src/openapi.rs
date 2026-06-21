@@ -29,6 +29,8 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         (name = "Me", description = "Current user endpoints."),
         (name = "Users", description = "Application-scoped users."),
         (name = "Organizations", description = "Application-scoped organizations."),
+        (name = "Permissions", description = "Application permission catalog."),
+        (name = "OrgRoles", description = "Organization role definitions."),
         (name = "Members", description = "Organization membership."),
         (name = "Invites", description = "Organization invite links."),
         (name = "JWKS", description = "JWT verification keys.")
@@ -52,6 +54,15 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         orgs_list,
         orgs_create,
         orgs_get,
+        permissions_list,
+        permissions_create,
+        permissions_get,
+        permissions_delete,
+        org_roles_list,
+        org_roles_create,
+        org_roles_get,
+        org_roles_update,
+        org_roles_delete,
         members_list,
         members_add,
         members_remove,
@@ -64,11 +75,14 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         AddMemberRequest,
         AcceptInviteRequest,
         AcceptInviteResponse,
+        AppPermission,
+        CreateAppPermissionRequest,
         CreateApplicationRequest,
         CreateApplicationResponse,
         CreateAppForm,
         CreateInviteRequest,
         CreateOrgRequest,
+        CreateOrgRoleRequest,
         ErrorResponse,
         InviteResponse,
         Jwk,
@@ -78,11 +92,14 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         Member,
         OkResponse,
         Organization,
+        OrgRole,
+        OrgRoleDetail,
         RefreshRequest,
         SignupRequest,
         SignupResponse,
         SwitchOrgRequest,
         TokenResponse,
+        UpdateOrgRoleRequest,
         User,
         UserOrganization
     )),
@@ -228,10 +245,67 @@ struct CreateOrgRequest {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+struct AppPermission {
+    id: String,
+    application_id: String,
+    key: String,
+    name: String,
+    description: Option<String>,
+    #[schema(format = DateTime)]
+    created_at: String,
+    #[schema(format = DateTime)]
+    updated_at: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+struct CreateAppPermissionRequest {
+    key: String,
+    name: String,
+    description: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct OrgRole {
+    id: String,
+    organization_id: String,
+    slug: String,
+    name: String,
+    description: Option<String>,
+    #[schema(format = DateTime)]
+    created_at: String,
+    #[schema(format = DateTime)]
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct OrgRoleDetail {
+    #[serde(flatten)]
+    role: OrgRole,
+    permission_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+struct CreateOrgRoleRequest {
+    slug: String,
+    name: String,
+    description: Option<String>,
+    #[serde(default)]
+    permission_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+struct UpdateOrgRoleRequest {
+    name: Option<String>,
+    description: Option<String>,
+    permission_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 struct Member {
     id: String,
     organization_id: String,
     user_id: String,
+    org_role_id: String,
     role: String,
     #[schema(format = DateTime)]
     created_at: String,
@@ -242,6 +316,7 @@ struct Member {
 #[derive(Debug, Deserialize, ToSchema)]
 struct AddMemberRequest {
     user_id: String,
+    org_role_id: Option<String>,
     role: Option<String>,
 }
 
@@ -249,6 +324,7 @@ struct AddMemberRequest {
 struct UserOrganization {
     organization: Organization,
     role: String,
+    permissions: Vec<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -463,6 +539,115 @@ fn orgs_get() {}
 
 #[utoipa::path(
     get,
+    path = "/permissions",
+    tag = "Permissions",
+    summary = "List application permissions",
+    security(("appBasicAuth" = [])),
+    responses((status = 200, description = "Permissions listed", body = Vec<AppPermission>))
+)]
+fn permissions_list() {}
+
+#[utoipa::path(
+    post,
+    path = "/permissions",
+    tag = "Permissions",
+    summary = "Create an application permission",
+    security(("appBasicAuth" = [])),
+    request_body = CreateAppPermissionRequest,
+    responses((status = 200, description = "Permission created", body = AppPermission))
+)]
+fn permissions_create() {}
+
+#[utoipa::path(
+    get,
+    path = "/permissions/{id}",
+    tag = "Permissions",
+    summary = "Get a permission by ID",
+    security(("appBasicAuth" = [])),
+    params(("id" = String, Path, description = "Permission ID")),
+    responses((status = 200, description = "Permission found", body = AppPermission))
+)]
+fn permissions_get() {}
+
+#[utoipa::path(
+    delete,
+    path = "/permissions/{id}",
+    tag = "Permissions",
+    summary = "Delete an application permission",
+    security(("appBasicAuth" = [])),
+    params(("id" = String, Path, description = "Permission ID")),
+    responses((status = 200, description = "Permission deleted", body = OkResponse))
+)]
+fn permissions_delete() {}
+
+#[utoipa::path(
+    get,
+    path = "/orgs/{org_id}/roles",
+    tag = "OrgRoles",
+    summary = "List organization roles",
+    security(("appBasicAuth" = [])),
+    params(("org_id" = String, Path, description = "Organization ID")),
+    responses((status = 200, description = "Roles listed", body = Vec<OrgRoleDetail>))
+)]
+fn org_roles_list() {}
+
+#[utoipa::path(
+    post,
+    path = "/orgs/{org_id}/roles",
+    tag = "OrgRoles",
+    summary = "Create an organization role",
+    security(("appBasicAuth" = [])),
+    params(("org_id" = String, Path, description = "Organization ID")),
+    request_body = CreateOrgRoleRequest,
+    responses((status = 200, description = "Role created", body = OrgRoleDetail))
+)]
+fn org_roles_create() {}
+
+#[utoipa::path(
+    get,
+    path = "/orgs/{org_id}/roles/{role_id}",
+    tag = "OrgRoles",
+    summary = "Get an organization role",
+    security(("appBasicAuth" = [])),
+    params(
+        ("org_id" = String, Path, description = "Organization ID"),
+        ("role_id" = String, Path, description = "Organization role ID")
+    ),
+    responses((status = 200, description = "Role found", body = OrgRoleDetail))
+)]
+fn org_roles_get() {}
+
+#[utoipa::path(
+    patch,
+    path = "/orgs/{org_id}/roles/{role_id}",
+    tag = "OrgRoles",
+    summary = "Update an organization role",
+    security(("appBasicAuth" = [])),
+    params(
+        ("org_id" = String, Path, description = "Organization ID"),
+        ("role_id" = String, Path, description = "Organization role ID")
+    ),
+    request_body = UpdateOrgRoleRequest,
+    responses((status = 200, description = "Role updated", body = OrgRoleDetail))
+)]
+fn org_roles_update() {}
+
+#[utoipa::path(
+    delete,
+    path = "/orgs/{org_id}/roles/{role_id}",
+    tag = "OrgRoles",
+    summary = "Delete an organization role",
+    security(("appBasicAuth" = [])),
+    params(
+        ("org_id" = String, Path, description = "Organization ID"),
+        ("role_id" = String, Path, description = "Organization role ID")
+    ),
+    responses((status = 200, description = "Role deleted", body = OkResponse))
+)]
+fn org_roles_delete() {}
+
+#[utoipa::path(
+    get,
     path = "/orgs/{org_id}/members",
     tag = "Members",
     summary = "List members of an organization",
@@ -502,6 +687,7 @@ fn members_remove() {}
 struct CreateInviteRequest {
     #[schema(format = Email)]
     email: String,
+    org_role_id: Option<String>,
     role: Option<String>,
     name: Option<String>,
 }

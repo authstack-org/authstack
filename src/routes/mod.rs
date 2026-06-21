@@ -5,5 +5,7 @@ pub mod invites;
 pub mod jwks;
 pub mod me;
 pub mod members;
+pub mod org_roles;
 pub mod orgs;
+pub mod permissions;
 pub mod users;

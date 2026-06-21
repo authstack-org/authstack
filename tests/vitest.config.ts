@@ -8,6 +8,8 @@ const FILE_ORDER = [
   'src/auth.test.ts',
   'src/users.test.ts',
   'src/orgs.test.ts',
+  'src/permissions.test.ts',
+  'src/org-roles.test.ts',
   'src/members.test.ts',
   'src/invites.test.ts',
 ]
