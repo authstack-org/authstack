@@ -2339,6 +2339,7 @@ async fn create_org_role_admin(
 struct UpdateOrgRoleForm {
     name: String,
     description: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_form_string_vec")]
     permission_ids: Vec<String>,
 }
 
